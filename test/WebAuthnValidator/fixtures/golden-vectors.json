@@ -1,0 +1,68 @@
+{
+  "_version": "1",
+  "chain_id": 31337,
+  "merkle": {
+    "leaves": {
+      "0": "0xbc36789e7a1e281436464229828f817d6612f7b477d66591ff96a9e064bcc98a",
+      "1": "0x5fe7f977e71dba2ea1a68e21057beebb9be2ac30c6410aa38d4f3fbe41dcffd2",
+      "2": "0xf2ee15ea639b73fa3db9b34a245bdfa015c260c598b211bf05a1ecc4b3e3b4f2"
+    },
+    "proof_0": {
+      "0": "0x5fe7f977e71dba2ea1a68e21057beebb9be2ac30c6410aa38d4f3fbe41dcffd2",
+      "1": "0xf2ee15ea639b73fa3db9b34a245bdfa015c260c598b211bf05a1ecc4b3e3b4f2"
+    },
+    "proof_1": {
+      "0": "0xbc36789e7a1e281436464229828f817d6612f7b477d66591ff96a9e064bcc98a",
+      "1": "0xf2ee15ea639b73fa3db9b34a245bdfa015c260c598b211bf05a1ecc4b3e3b4f2"
+    },
+    "proof_2": {
+      "0": "0xb2521d64679bc4720dabfbae7ce17947a5d373d987d3b0cc1e3042ba2054da4a"
+    },
+    "root": "0xd359d2743bb3a93ded4c902716931497ae3080f478c14e7af96344a92e9ddd51"
+  },
+  "passkey_digest": {
+    "0": {
+      "input": "0xf631058a3ba1116acce12396fad0a125b5041c43f8e15723709f81aa8d5f4ccf",
+      "output": "0xacd34a3ce4b143ff25af586feb5e925d9cb718fc9b0189bbfceb435b5cddde73"
+    },
+    "1": {
+      "input": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "output": "0x65f1c1780778b1d3ee399894da719881811e42fe6ad3ac088eb2f67e3fe711ef"
+    },
+    "2": {
+      "input": "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      "output": "0x01768bd2e4449e283bd0de885e44513df28eb25fb68d419325caa4f0f7c53ec1"
+    }
+  },
+  "passkey_multichain": {
+    "0": {
+      "input": "0xf631058a3ba1116acce12396fad0a125b5041c43f8e15723709f81aa8d5f4ccf",
+      "output": "0x397270ad4bf9cdcc24433855f14e5c8b3ac9a08ab2254538b879c9f712d87557"
+    },
+    "1": {
+      "input": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "output": "0xa76da55f255c9ee3d41c839fa7ac8cc7f732f53a38f346e17ba58b893ac619e5"
+    },
+    "2": {
+      "input": "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      "output": "0x9a1d271cfa1c7be96ef9b972d701dd67d657e409189ab3380a056f152c6849f0"
+    }
+  },
+  "recovery_digest": {
+    "account": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+    "chain_id": 31337,
+    "expiry": 1700000000,
+    "new_key_id": 1,
+    "new_pub_key_x": "39822268494420380862142963446600484332503039179828777786780392414513338988387",
+    "new_pub_key_y": "56664491113712345833914954889732955401980098641432724692354286094797814265809",
+    "new_require_uv": false,
+    "nonce": 42,
+    "output": "0x9074df5c32c2e4555e7642cbe65869af98afda0d03185c282a09cf2d6e6b0676"
+  },
+  "typehashes": {
+    "passkey_digest": "0x5caa3237acf0e6317d6289a3b5569dc3aacf5a11ba3f1b520dd47ecd239faa11",
+    "passkey_multichain": "0xa5a505152e3529fa0b604100bdbc62aa67739181383273446e82d3023b082e99",
+    "recover_passkey": "0xbad35c072e8926f88a241cb45c66597f59c4c752923667371b83fc736e96e597"
+  },
+  "validator_address": "0x5aAdFB43eF8dAF45DD80F4676345b7676f1D70e3"
+}

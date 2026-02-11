@@ -1,0 +1,8 @@
+[package]
+name = "encoding-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tiny-keccak = { version = "2", features = ["keccak"] }
+hex = "0.4"
