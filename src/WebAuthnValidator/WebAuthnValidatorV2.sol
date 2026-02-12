@@ -5,6 +5,7 @@ import { ERC7579HybridValidatorBase } from "modulekit/Modules.sol";
 import { PackedUserOperation } from "modulekit/external/ERC4337.sol";
 import { MerkleProofLib } from "solady/utils/MerkleProofLib.sol";
 import { EnumerableSetLib } from "solady/utils/EnumerableSetLib.sol";
+import { EfficientHashLib } from "solady/utils/EfficientHashLib.sol";
 import { WebAuthn } from "solady/utils/WebAuthn.sol";
 import {
     MODULE_TYPE_STATELESS_VALIDATOR as TYPE_STATELESS_VALIDATOR
@@ -42,6 +43,7 @@ import { MAX_MERKLE_DEPTH, MAX_CREDENTIALS } from "./lib/Constants.sol";
  */
 contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase, UVExemptBase, IWebAuthnValidatorV2 {
     using EnumerableSetLib for EnumerableSetLib.Uint256Set;
+    using EfficientHashLib for bytes32;
 
     /*//////////////////////////////////////////////////////////////
                                 STRUCTS
@@ -232,7 +234,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         // since there would be no valid signer to authorize operations or add new credentials
         if (len <= 1) revert CannotRemoveLastCredential();
 
-        uint256 ck = _credKey(keyId);
+        uint256 ck = uint256(keyId);
 
         // EnumerableSetLib.remove returns false if the key was not in the set
         if (!pc.enabledCredKeys.remove(ck)) revert CredentialNotFound(keyId);
@@ -256,7 +258,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         view
         returns (bytes32 pubKeyX, bytes32 pubKeyY)
     {
-        uint256 ck = _credKey(keyId);
+        uint256 ck = uint256(keyId);
         WebAuthnCredential storage cred = _passkeyCredentials[account].credentials[ck];
         return (cred.pubKeyX, cred.pubKeyY);
     }
@@ -454,16 +456,6 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Compute the credential storage key from keyId
-     * @dev Simple cast from uint16 to uint256 for use as a mapping key.
-     * @param keyId 16-bit credential identifier
-     * @return The credential storage key
-     */
-    function _credKey(uint16 keyId) internal pure returns (uint256) {
-        return uint256(keyId);
-    }
-
-    /**
      * @notice Chain-specific EIP-712 challenge for single operation signing
      * @dev Uses Solady's _hashTypedData which includes chainId in the EIP-712 domain separator.
      *      This prevents cross-chain replay: a signature made on chain A cannot be reused on
@@ -473,7 +465,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
      * @return The chain-specific EIP-712 hash to be used as the WebAuthn challenge
      */
     function _passkeyDigest(bytes32 digest) internal view returns (bytes32) {
-        return _hashTypedData(EIP712Lib.passkeyDigestHash(digest));
+        return _hashTypedData(EIP712Lib.PASSKEY_DIGEST_TYPEHASH.hash(digest));
     }
 
     /**
@@ -486,7 +478,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
      * @return The chain-agnostic EIP-712 hash to be used as the WebAuthn challenge
      */
     function _passkeyMultichain(bytes32 root) internal view returns (bytes32) {
-        return _hashTypedDataSansChainId(EIP712Lib.passkeyMultichainHash(root));
+        return _hashTypedDataSansChainId(EIP712Lib.PASSKEY_MULTICHAIN_TYPEHASH.hash(root));
     }
 
     /**
@@ -553,7 +545,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         internal
     {
         if (!P256Lib.isOnCurve(uint256(pubKeyX), uint256(pubKeyY))) revert InvalidPublicKey();
-        uint256 ck = _credKey(keyId);
+        uint256 ck = uint256(keyId);
         if (!pc.enabledCredKeys.add(ck)) revert KeyIdAlreadyExists(keyId);
         pc.credentials[ck] = WebAuthnCredential(pubKeyX, pubKeyY);
         emit CredentialAdded(account, keyId, pubKeyX, pubKeyY);
@@ -578,7 +570,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         if (len == 0) revert NotInitialized(account);
         if (!P256Lib.isOnCurve(uint256(pubKeyX), uint256(pubKeyY))) revert InvalidPublicKey();
 
-        uint256 ck = _credKey(keyId);
+        uint256 ck = uint256(keyId);
         if (!pc.enabledCredKeys.contains(ck)) revert CredentialNotFound(keyId);
 
         pc.credentials[ck] = WebAuthnCredential(pubKeyX, pubKeyY);
@@ -658,7 +650,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         bool requestSkipUV = uint8(data[3]) != 0;
 
         // Look up the credential by keyId — loaded into memory for cheaper repeated access
-        uint256 ck = _credKey(keyId);
+        uint256 ck = uint256(keyId);
         WebAuthnCredential memory cred = _passkeyCredentials[account].credentials[ck];
 
         // pubKeyX == 0 means this credential slot is empty (never registered or was deleted).
@@ -737,7 +729,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         bool requestSkipUV = uint8(data[proofEnd + 2]) != 0;
 
         // Look up the credential by keyId — loaded into memory for cheaper repeated access
-        uint256 ck = _credKey(keyId);
+        uint256 ck = uint256(keyId);
         WebAuthnCredential memory cred = _passkeyCredentials[account].credentials[ck];
         if (cred.pubKeyX == bytes32(0)) return false;
 
