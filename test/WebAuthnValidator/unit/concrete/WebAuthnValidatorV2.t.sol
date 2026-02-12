@@ -3,6 +3,7 @@ pragma solidity ^0.8.23;
 
 import { BaseTest } from "test/Base.t.sol";
 import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
+import { IWebAuthnValidatorV2 } from "src/WebAuthnValidator/IWebAuthnValidatorV2.sol";
 import { ERC7579HybridValidatorBase, ERC7579ValidatorBase } from "modulekit/Modules.sol";
 import { WebAuthn } from "solady/utils/WebAuthn.sol";
 import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.sol";
@@ -252,7 +253,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         uint16[] memory keyIds = new uint16[](0);
         WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
             new WebAuthnValidatorV2.WebAuthnCredential[](0);
-        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
@@ -262,7 +263,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
             new WebAuthnValidatorV2.WebAuthnCredential[](1);
         creds[0] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: bytes32(0), pubKeyY: bytes32(0) });
-        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
@@ -274,7 +275,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
             new WebAuthnValidatorV2.WebAuthnCredential[](2);
         creds[0] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
         creds[1] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: _pubKeyX1, pubKeyY: _pubKeyY1 });
-        vm.expectRevert(abi.encodeWithSelector(WebAuthnValidatorV2.KeyIdAlreadyExists.selector, 5));
+        vm.expectRevert(abi.encodeWithSelector(IWebAuthnValidatorV2.KeyIdAlreadyExists.selector, 5));
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
@@ -312,13 +313,13 @@ contract WebAuthnValidatorV2Test is BaseTest {
 
     function test_AddCredential_RevertWhen_ZeroPubKey() public {
         _install1();
-        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
         validator.addCredential(1, bytes32(0), bytes32(0));
     }
 
     function test_AddCredential_RevertWhen_DuplicateKeyId() public {
         _install1(); // keyId 0
-        vm.expectRevert(abi.encodeWithSelector(WebAuthnValidatorV2.KeyIdAlreadyExists.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IWebAuthnValidatorV2.KeyIdAlreadyExists.selector, 0));
         validator.addCredential(0, _pubKeyX1, _pubKeyY1);
     }
 
@@ -341,13 +342,13 @@ contract WebAuthnValidatorV2Test is BaseTest {
 
     function test_RemoveCredential_RevertWhen_LastCredential() public {
         _install1();
-        vm.expectRevert(WebAuthnValidatorV2.CannotRemoveLastCredential.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.CannotRemoveLastCredential.selector);
         validator.removeCredential(0);
     }
 
     function test_RemoveCredential_RevertWhen_NotFound() public {
         _install2();
-        vm.expectRevert(abi.encodeWithSelector(WebAuthnValidatorV2.CredentialNotFound.selector, 999));
+        vm.expectRevert(abi.encodeWithSelector(IWebAuthnValidatorV2.CredentialNotFound.selector, 999));
         validator.removeCredential(999);
     }
 
@@ -549,7 +550,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
     }
 
     function test_ValidateSignatureWithData_FailWhen_DataTooShort() public {
-        vm.expectRevert(WebAuthnValidatorV2.InvalidSignatureData.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.InvalidSignatureData.selector);
         validator.validateSignatureWithData(TEST_DIGEST, "", "");
     }
 
@@ -562,7 +563,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
             uint8(0)
         );
 
-        vm.expectRevert(WebAuthnValidatorV2.ProofTooLong.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.ProofTooLong.selector);
         validator.validateSignatureWithData(TEST_DIGEST, "", data);
     }
 
@@ -584,7 +585,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
             SIG_R, SIG_S, uint16(CHALLENGE_INDEX), uint16(TYPE_INDEX), AUTH_DATA, clientDataJSON
         );
 
-        vm.expectRevert(WebAuthnValidatorV2.InvalidMerkleProof.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.InvalidMerkleProof.selector);
         validator.validateSignatureWithData(TEST_DIGEST, sig, data);
     }
 
@@ -619,7 +620,6 @@ contract WebAuthnValidatorV2Test is BaseTest {
 
     function test_GetPasskeyDigest_MatchesEIP712() public view {
         bytes32 typehash = keccak256("PasskeyDigest(bytes32 digest)");
-        assertEq(typehash, validator.PASSKEY_DIGEST_TYPEHASH());
 
         bytes32 structHash = keccak256(abi.encode(typehash, TEST_DIGEST));
 
@@ -649,7 +649,6 @@ contract WebAuthnValidatorV2Test is BaseTest {
 
     function test_GetPasskeyMultichain_MatchesEIP712() public view {
         bytes32 typehash = keccak256("PasskeyMultichain(bytes32 root)");
-        assertEq(typehash, validator.PASSKEY_MULTICHAIN_TYPEHASH());
 
         bytes32 structHash = keccak256(abi.encode(typehash, TEST_DIGEST));
 
@@ -746,7 +745,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         bytes32 origH = keccak256("https://passkey.1auth.box");
 
         vm.expectEmit(true, false, false, true);
-        emit WebAuthnValidatorV2.UVExemptOriginSet(address(this), topH, origH, true);
+        emit IWebAuthnValidatorV2.UVExemptOriginSet(address(this), topH, origH, true);
         validator.setUVExemptOrigin(topH, origH, true);
     }
 
@@ -835,7 +834,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
             pubKeyX: bytes32(P256_P),
             pubKeyY: _pubKeyY0
         });
-        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
@@ -848,7 +847,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
             pubKeyX: _pubKeyX0,
             pubKeyY: bytes32(P256_P)
         });
-        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
@@ -861,7 +860,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
             pubKeyX: bytes32(P256_P + 1),
             pubKeyY: _pubKeyY0
         });
-        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
@@ -875,13 +874,13 @@ contract WebAuthnValidatorV2Test is BaseTest {
             pubKeyX: bytes32(uint256(1)),
             pubKeyY: bytes32(uint256(1))
         });
-        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
     function test_AddCredential_RevertWhen_NotOnCurve() public {
         _install1();
-        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
         validator.addCredential(99, bytes32(uint256(1)), bytes32(uint256(1)));
     }
 
@@ -899,7 +898,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         assertEq(validator.credentialCount(address(this)), 64);
 
         // The 65th should revert
-        vm.expectRevert(WebAuthnValidatorV2.TooManyCredentials.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.TooManyCredentials.selector);
         validator.addCredential(64, _pubKeyX0, _pubKeyY0);
     }
 
@@ -915,7 +914,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
                 pubKeyY: _pubKeyY0
             });
         }
-        vm.expectRevert(WebAuthnValidatorV2.TooManyCredentials.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.TooManyCredentials.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
@@ -929,7 +928,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
             pubKeyX: _pubKeyX0,
             pubKeyY: _pubKeyY0
         });
-        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
@@ -953,15 +952,15 @@ contract WebAuthnValidatorV2Test is BaseTest {
         });
 
         vm.expectEmit(true, true, false, true);
-        emit WebAuthnValidatorV2.CredentialAdded(address(this), 10, _pubKeyX0, _pubKeyY0);
+        emit IWebAuthnValidatorV2.CredentialAdded(address(this), 10, _pubKeyX0, _pubKeyY0);
         vm.expectEmit(true, true, false, true);
-        emit WebAuthnValidatorV2.CredentialAdded(address(this), 42, _pubKeyX1, _pubKeyY1);
+        emit IWebAuthnValidatorV2.CredentialAdded(address(this), 42, _pubKeyX1, _pubKeyY1);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
     function test_OnInstall_EmitsModuleInitialized() public {
         vm.expectEmit(true, false, false, false);
-        emit WebAuthnValidatorV2.ModuleInitialized(address(this));
+        emit IWebAuthnValidatorV2.ModuleInitialized(address(this));
         _install1();
     }
 
@@ -969,7 +968,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         _install2();
 
         vm.expectEmit(true, false, false, false);
-        emit WebAuthnValidatorV2.ModuleUninitialized(address(this));
+        emit IWebAuthnValidatorV2.ModuleUninitialized(address(this));
         validator.onUninstall("");
     }
 
@@ -977,7 +976,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         _install1();
 
         vm.expectEmit(true, true, false, true);
-        emit WebAuthnValidatorV2.CredentialAdded(address(this), 99, _pubKeyX1, _pubKeyY1);
+        emit IWebAuthnValidatorV2.CredentialAdded(address(this), 99, _pubKeyX1, _pubKeyY1);
         validator.addCredential(99, _pubKeyX1, _pubKeyY1);
     }
 
@@ -985,7 +984,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         _install2(); // keyIds 10, 42
 
         vm.expectEmit(true, true, false, false);
-        emit WebAuthnValidatorV2.CredentialRemoved(address(this), 10);
+        emit IWebAuthnValidatorV2.CredentialRemoved(address(this), 10);
         validator.removeCredential(10);
     }
 }

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.23;
 
 import { BaseTest } from "test/Base.t.sol";
-import { OriginLib } from "src/WebAuthnValidator/OriginLib.sol";
+import { OriginLib } from "src/WebAuthnValidator/lib/OriginLib.sol";
 
 /// @dev Thin harness to expose OriginLib's internal function via an external call,
 ///      ensuring the input is passed as calldata (required by the assembly implementation).

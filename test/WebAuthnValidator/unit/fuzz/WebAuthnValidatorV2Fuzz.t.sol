@@ -3,7 +3,8 @@ pragma solidity ^0.8.23;
 
 import { BaseTest } from "test/Base.t.sol";
 import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
-import { OriginLib } from "src/WebAuthnValidator/OriginLib.sol";
+import { IWebAuthnValidatorV2 } from "src/WebAuthnValidator/IWebAuthnValidatorV2.sol";
+import { OriginLib } from "src/WebAuthnValidator/lib/OriginLib.sol";
 import { ERC7579HybridValidatorBase, ERC7579ValidatorBase } from "modulekit/Modules.sol";
 import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.sol";
 import { EIP1271_MAGIC_VALUE } from "test/utils/Constants.sol";
@@ -101,7 +102,7 @@ contract WebAuthnValidatorV2FuzzTest is BaseTest {
         } catch (bytes memory reason) {
             assertEq(
                 bytes4(reason),
-                WebAuthnValidatorV2.InvalidPublicKey.selector,
+                IWebAuthnValidatorV2.InvalidPublicKey.selector,
                 "Should revert with InvalidPublicKey"
             );
         }

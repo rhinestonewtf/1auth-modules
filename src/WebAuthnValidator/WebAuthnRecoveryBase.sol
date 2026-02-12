@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
-import { EIP712Lib } from "./EIP712Lib.sol";
+import { EIP712Lib } from "./lib/EIP712Lib.sol";
 
 /// @title WebAuthnRecoveryBase
 /// @notice Abstract recovery mixin for WebAuthn validators with EIP-712 typed data
