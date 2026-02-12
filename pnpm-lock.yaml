@@ -40,7 +40,7 @@ importers:
         version: https://codeload.github.com/rhinestonewtf/sentinellist/tar.gz/4b03ebb52517035bd7bd6af4486f6428228cd763
       '@safe-global/safe-smart-account':
         specifier: github:safe-global/safe-smart-account
-        version: git+https://git@github.com:safe-global/safe-smart-account.git#a2e19c6aa42a45ceec68057f3fa387f169c5b321
+        version: https://codeload.github.com/safe-global/safe-smart-account/tar.gz/a2e19c6aa42a45ceec68057f3fa387f169c5b321
       FreshCryptoLib:
         specifier: github:rdubois-crypto/FreshCryptoLib
         version: https://codeload.github.com/rdubois-crypto/FreshCryptoLib/tar.gz/8179e08cac72072bd260796633fec41fdfd5b441
@@ -370,8 +370,8 @@ packages:
     resolution: {tarball: https://codeload.github.com/rhinestonewtf/sentinellist/tar.gz/4b03ebb52517035bd7bd6af4486f6428228cd763}
     version: 1.0.1
 
-  '@safe-global/safe-smart-account@git+https://git@github.com:safe-global/safe-smart-account.git#a2e19c6aa42a45ceec68057f3fa387f169c5b321':
-    resolution: {commit: a2e19c6aa42a45ceec68057f3fa387f169c5b321, repo: git@github.com:safe-global/safe-smart-account.git, type: git}
+  '@safe-global/safe-smart-account@https://codeload.github.com/safe-global/safe-smart-account/tar.gz/a2e19c6aa42a45ceec68057f3fa387f169c5b321':
+    resolution: {tarball: https://codeload.github.com/safe-global/safe-smart-account/tar.gz/a2e19c6aa42a45ceec68057f3fa387f169c5b321}
     version: 1.5.0
 
   '@scure/base@1.1.9':
@@ -2648,7 +2648,7 @@ snapshots:
     dependencies:
       forge-std: https://codeload.github.com/foundry-rs/forge-std/tar.gz/aeb45e9f32ef8ca78f0aeda17596e9c46374da41
 
-  '@safe-global/safe-smart-account@git+https://git@github.com:safe-global/safe-smart-account.git#a2e19c6aa42a45ceec68057f3fa387f169c5b321': {}
+  '@safe-global/safe-smart-account@https://codeload.github.com/safe-global/safe-smart-account/tar.gz/a2e19c6aa42a45ceec68057f3fa387f169c5b321': {}
 
   '@scure/base@1.1.9': {}
 

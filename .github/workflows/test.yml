@@ -10,9 +10,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure git to use HTTPS
-        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
-
       - uses: pnpm/action-setup@v4
         with:
           version: 9
