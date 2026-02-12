@@ -9,15 +9,16 @@ import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.s
 import { EIP1271_MAGIC_VALUE } from "test/utils/Constants.sol";
 import { Base64Url } from "FreshCryptoLib/utils/Base64Url.sol";
 import { console2 } from "forge-std/console2.sol";
+import { P256VerifierWrapper } from "test/WebAuthnValidator/helpers/P256VerifierWrapper.sol";
 
 contract WebAuthnValidatorV2Test is BaseTest {
     WebAuthnValidatorV2 internal validator;
 
-    // Test public keys (same as v1 test vectors)
-    bytes32 _pubKeyX0 =
-        bytes32(uint256(66_296_829_923_831_658_891_499_717_579_803_548_012_279_830_557_731_564_719_736_971_029_660_387_468_805));
-    bytes32 _pubKeyY0 =
-        bytes32(uint256(46_098_569_798_045_992_993_621_049_610_647_226_011_837_333_919_273_603_402_527_314_962_291_506_652_186));
+    uint256 constant P256_PRIV_KEY = 0x03d99692017473e2d631945a812607b23269d85721e0f370b8d3e7d29a874004;
+
+    // Test public keys — pubKey0 is derived from P256_PRIV_KEY in setUp()
+    bytes32 _pubKeyX0;
+    bytes32 _pubKeyY0;
 
     bytes32 _pubKeyX1 =
         bytes32(uint256(77_427_310_596_034_628_445_756_159_459_159_056_108_500_819_865_614_675_054_701_790_516_611_205_123_311));
@@ -32,9 +33,19 @@ contract WebAuthnValidatorV2Test is BaseTest {
     uint256 constant P256_P =
         0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF;
 
-    // Real WebAuthn auth data for pubKey0 signing abi.encode(TEST_DIGEST)
+    // P-256 curve order N and N/2 (for s-malleability normalization)
+    uint256 constant P256_N =
+        0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551;
+    uint256 constant P256_N_DIV_2 =
+        0x7fffffff800000007fffffffffffffffde737d56d38bcf4279dce5617e3192a8;
+
+    // Real WebAuthn auth data (UP flag only, no UV)
     bytes constant AUTH_DATA =
         hex"49960de5880e8c687434170f6476605b8fe4aeb9a28632c7995cf3ba831d97630100000001";
+
+    // Auth data with both UP and UV flags set (flags byte = 0x05)
+    bytes constant AUTH_DATA_UV =
+        hex"49960de5880e8c687434170f6476605b8fe4aeb9a28632c7995cf3ba831d97630500000001";
     uint256 constant SIG_R =
         23_510_924_181_331_275_540_501_876_269_042_668_160_690_304_423_490_805_737_085_519_687_669_896_593_880;
     uint256 constant SIG_S =
@@ -44,7 +55,18 @@ contract WebAuthnValidatorV2Test is BaseTest {
 
     function setUp() public virtual override {
         BaseTest.setUp();
+
+        // Deploy P256 verifier at the Solady VERIFIER address so Solady's P256.sol can verify signatures
+        address SOLADY_P256_VERIFIER = 0x000000000000D01eA45F9eFD5c54f037Fa57Ea1a;
+        P256VerifierWrapper verifier_ = new P256VerifierWrapper();
+        vm.etch(SOLADY_P256_VERIFIER, address(verifier_).code);
+
         validator = new WebAuthnValidatorV2();
+
+        // Derive P-256 public keys from private key
+        (uint256 x0, uint256 y0) = vm.publicKeyP256(P256_PRIV_KEY);
+        _pubKeyX0 = bytes32(x0);
+        _pubKeyY0 = bytes32(y0);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -136,6 +158,31 @@ contract WebAuthnValidatorV2Test is BaseTest {
             clientDataJSON
         );
         return result;
+    }
+
+    /// @dev Create a valid WebAuthn signature at runtime using vm.signP256
+    /// Uses AUTH_DATA_UV (with UV flag set) since the contract defaults to requireUV=true
+    function _createValidWebAuthnSig(bytes32 digest)
+        internal
+        view
+        returns (uint256 r, uint256 s, string memory clientDataJSON)
+    {
+        // The contract wraps the digest in EIP-712
+        bytes32 challenge = validator.getPasskeyDigest(digest);
+        clientDataJSON = _buildClientDataJSON(challenge);
+
+        // WebAuthn message = sha256(authenticatorData || sha256(clientDataJSON))
+        bytes32 msgHash = sha256(abi.encodePacked(AUTH_DATA_UV, sha256(bytes(clientDataJSON))));
+
+        // Sign with P-256
+        (bytes32 r32, bytes32 s32) = vm.signP256(P256_PRIV_KEY, msgHash);
+        r = uint256(r32);
+        s = uint256(s32);
+
+        // Normalize s to low-half per Solady's malleability check (s must be <= N/2)
+        if (s > P256_N_DIV_2) {
+            s = P256_N - s;
+        }
     }
 
     function _installData1() internal view returns (bytes memory) {
@@ -320,10 +367,8 @@ contract WebAuthnValidatorV2Test is BaseTest {
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = address(this);
 
-        // Regular signing: challenge = abi.encode(digest)
-        string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
-
-        userOp.signature = _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
+        userOp.signature = _buildRegularSignature(0, 0, r, s, AUTH_DATA_UV, clientDataJSON);
 
         uint256 validationData =
             ERC7579ValidatorBase.ValidationData.unwrap(validator.validateUserOp(userOp, TEST_DIGEST));
@@ -377,10 +422,9 @@ contract WebAuthnValidatorV2Test is BaseTest {
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = address(this);
 
-        string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
-
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
         // Use keyId 10 which has pubKey0 (matches the test vectors)
-        userOp.signature = _buildRegularSignature(10, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+        userOp.signature = _buildRegularSignature(10, 0, r, s, AUTH_DATA_UV, clientDataJSON);
 
         uint256 validationData =
             ERC7579ValidatorBase.ValidationData.unwrap(validator.validateUserOp(userOp, TEST_DIGEST));
@@ -392,8 +436,8 @@ contract WebAuthnValidatorV2Test is BaseTest {
     function test_IsValidSignatureWithSender_RegularSigning() public {
         _install1();
 
-        string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
-        bytes memory sig = _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
+        bytes memory sig = _buildRegularSignature(0, 0, r, s, AUTH_DATA_UV, clientDataJSON);
 
         bytes4 result = validator.isValidSignatureWithSender(address(this), TEST_DIGEST, sig);
         assertEq(result, EIP1271_MAGIC_VALUE, "Should return EIP1271_SUCCESS");
@@ -474,7 +518,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
     //////////////////////////////////////////////////////////////////////////*/
 
     function test_ValidateSignatureWithData_RegularSigning() public view {
-        // proofLength=0: regular signing, challenge = hash
+        // proofLength=0: regular signing, challenge = _passkeyDigest(hash)
         bytes memory data = abi.encodePacked(
             uint8(0), // proofLength = 0
             _pubKeyX0,
@@ -482,9 +526,22 @@ contract WebAuthnValidatorV2Test is BaseTest {
             uint8(0) // requireUV
         );
 
-        string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
+        // Compute the EIP-712 challenge
+        bytes32 challenge = validator.getPasskeyDigest(TEST_DIGEST);
+        string memory clientDataJSON = _buildClientDataJSON(challenge);
+
+        // Sign the WebAuthn message
+        bytes32 msgHash = sha256(abi.encodePacked(AUTH_DATA, sha256(bytes(clientDataJSON))));
+        (bytes32 r32, bytes32 s32) = vm.signP256(P256_PRIV_KEY, msgHash);
+
+        // Normalize s to low-half per Solady's malleability check
+        uint256 sNorm = uint256(s32);
+        if (sNorm > P256_N_DIV_2) {
+            sNorm = P256_N - sNorm;
+        }
+
         bytes memory sig = _packWebAuthnAuth(
-            SIG_R, SIG_S, uint16(CHALLENGE_INDEX), uint16(TYPE_INDEX), AUTH_DATA, clientDataJSON
+            uint256(r32), sNorm, uint16(CHALLENGE_INDEX), uint16(TYPE_INDEX), AUTH_DATA, clientDataJSON
         );
 
         bool result = validator.validateSignatureWithData(TEST_DIGEST, sig, data);

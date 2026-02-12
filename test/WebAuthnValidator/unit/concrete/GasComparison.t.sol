@@ -9,6 +9,7 @@ import { WebAuthn } from "webauthn-sol/src/WebAuthn.sol";
 import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.sol";
 import { Base64Url } from "FreshCryptoLib/utils/Base64Url.sol";
 import { LibSort } from "solady/utils/LibSort.sol";
+import { P256VerifierWrapper } from "test/WebAuthnValidator/helpers/P256VerifierWrapper.sol";
 
 /// @title Gas comparison: WebAuthnValidator v1 vs v2 (single signer, single chain)
 contract GasComparisonTest is BaseTest {
@@ -17,16 +18,26 @@ contract GasComparisonTest is BaseTest {
     WebAuthnValidator internal v1;
     WebAuthnValidatorV2 internal v2;
 
+    uint256 constant P256_PRIV_KEY = 0x03d99692017473e2d631945a812607b23269d85721e0f370b8d3e7d29a874004;
+
+    // V1 pub keys (hardcoded, matching the hardcoded SIG_R/SIG_S test vectors)
     uint256 _pubKeyX =
         66_296_829_923_831_658_891_499_717_579_803_548_012_279_830_557_731_564_719_736_971_029_660_387_468_805;
     uint256 _pubKeyY =
         46_098_569_798_045_992_993_621_049_610_647_226_011_837_333_919_273_603_402_527_314_962_291_506_652_186;
+
+    // V2 pub keys (derived from P256_PRIV_KEY in setUp)
+    uint256 _v2PubKeyX;
+    uint256 _v2PubKeyY;
 
     bytes32 constant TEST_DIGEST =
         0xf631058a3ba1116acce12396fad0a125b5041c43f8e15723709f81aa8d5f4ccf;
 
     bytes constant AUTH_DATA =
         hex"49960de5880e8c687434170f6476605b8fe4aeb9a28632c7995cf3ba831d97630100000001";
+    // Auth data with both UP and UV flags set (flags byte = 0x05)
+    bytes constant AUTH_DATA_UV =
+        hex"49960de5880e8c687434170f6476605b8fe4aeb9a28632c7995cf3ba831d97630500000001";
     uint256 constant SIG_R =
         23_510_924_181_331_275_540_501_876_269_042_668_160_690_304_423_490_805_737_085_519_687_669_896_593_880;
     uint256 constant SIG_S =
@@ -34,12 +45,27 @@ contract GasComparisonTest is BaseTest {
     uint256 constant CHALLENGE_INDEX = 23;
     uint256 constant TYPE_INDEX = 1;
 
+    // P-256 curve order N and N/2 (for s-malleability normalization)
+    uint256 constant P256_N =
+        0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551;
+    uint256 constant P256_N_DIV_2 =
+        0x7fffffff800000007fffffffffffffffde737d56d38bcf4279dce5617e3192a8;
+
     function setUp() public virtual override {
         BaseTest.setUp();
+
+        // Deploy P256 verifier at the Solady VERIFIER address so Solady's P256.sol can verify signatures
+        address SOLADY_P256_VERIFIER = 0x000000000000D01eA45F9eFD5c54f037Fa57Ea1a;
+        P256VerifierWrapper verifier_ = new P256VerifierWrapper();
+        vm.etch(SOLADY_P256_VERIFIER, address(verifier_).code);
+
         v1 = new WebAuthnValidator();
         v2 = new WebAuthnValidatorV2();
 
-        // --- Install v1 with threshold=1, single credential ---
+        // Derive V2 P-256 public keys from private key
+        (_v2PubKeyX, _v2PubKeyY) = vm.publicKeyP256(P256_PRIV_KEY);
+
+        // --- Install v1 with threshold=1, single credential (hardcoded keys) ---
         WebAuthnValidator.WebAuthnCredential[] memory v1Creds =
             new WebAuthnValidator.WebAuthnCredential[](1);
         v1Creds[0] = WebAuthnValidator.WebAuthnCredential({
@@ -49,14 +75,14 @@ contract GasComparisonTest is BaseTest {
         });
         v1.onInstall(abi.encode(uint256(1), v1Creds));
 
-        // --- Install v2 with single credential ---
+        // --- Install v2 with single credential (derived keys) ---
         uint16[] memory keyIds = new uint16[](1);
         keyIds[0] = 0;
         WebAuthnValidatorV2.WebAuthnCredential[] memory v2Creds =
             new WebAuthnValidatorV2.WebAuthnCredential[](1);
         v2Creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
-            pubKeyX: bytes32(_pubKeyX),
-            pubKeyY: bytes32(_pubKeyY)
+            pubKeyX: bytes32(_v2PubKeyX),
+            pubKeyY: bytes32(_v2PubKeyY)
         });
         v2.onInstall(abi.encode(keyIds, v2Creds, address(0), uint48(0)));
     }
@@ -122,19 +148,29 @@ contract GasComparisonTest is BaseTest {
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = address(this);
 
-        string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
+        // Compute EIP-712 challenge and sign at runtime
+        bytes32 challenge = v2.getPasskeyDigest(TEST_DIGEST);
+        string memory clientDataJSON = _buildClientDataJSON(challenge);
+        bytes32 msgHash = sha256(abi.encodePacked(AUTH_DATA_UV, sha256(bytes(clientDataJSON))));
+        (bytes32 r, bytes32 s) = vm.signP256(P256_PRIV_KEY, msgHash);
+
+        // Normalize s to low-half per Solady's malleability check
+        uint256 sNorm = uint256(s);
+        if (sNorm > P256_N_DIV_2) {
+            sNorm = P256_N - sNorm;
+        }
 
         // v2 packed sig: [proofLength=0][keyId][requireUV][packed WebAuthnAuth]
         userOp.signature = abi.encodePacked(
             uint8(0),   // proofLength = 0
             uint16(0),  // keyId
             uint8(0),   // requireUV
-            SIG_R,
-            SIG_S,
+            r,
+            bytes32(sNorm),
             uint16(CHALLENGE_INDEX),
             uint16(TYPE_INDEX),
-            uint16(AUTH_DATA.length),
-            AUTH_DATA,
+            uint16(AUTH_DATA_UV.length),
+            AUTH_DATA_UV,
             clientDataJSON
         );
 
@@ -187,18 +223,28 @@ contract GasComparisonTest is BaseTest {
     //////////////////////////////////////////////////////////////////////////*/
 
     function test_gas_V2_isValidSignatureWithSender() public {
-        string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
+        // Compute EIP-712 challenge and sign at runtime
+        bytes32 challenge = v2.getPasskeyDigest(TEST_DIGEST);
+        string memory clientDataJSON = _buildClientDataJSON(challenge);
+        bytes32 msgHash = sha256(abi.encodePacked(AUTH_DATA_UV, sha256(bytes(clientDataJSON))));
+        (bytes32 r, bytes32 s) = vm.signP256(P256_PRIV_KEY, msgHash);
+
+        // Normalize s to low-half per Solady's malleability check
+        uint256 sNorm = uint256(s);
+        if (sNorm > P256_N_DIV_2) {
+            sNorm = P256_N - sNorm;
+        }
 
         bytes memory sig = abi.encodePacked(
             uint8(0),
             uint16(0),
             uint8(0),
-            SIG_R,
-            SIG_S,
+            r,
+            bytes32(sNorm),
             uint16(CHALLENGE_INDEX),
             uint16(TYPE_INDEX),
-            uint16(AUTH_DATA.length),
-            AUTH_DATA,
+            uint16(AUTH_DATA_UV.length),
+            AUTH_DATA_UV,
             clientDataJSON
         );
 
