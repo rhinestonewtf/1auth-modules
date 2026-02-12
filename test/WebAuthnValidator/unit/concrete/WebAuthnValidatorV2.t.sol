@@ -13,15 +13,15 @@ contract WebAuthnValidatorV2Test is BaseTest {
     WebAuthnValidatorV2 internal validator;
 
     // Test public keys (same as v1 test vectors)
-    uint256 _pubKeyX0 =
-        66_296_829_923_831_658_891_499_717_579_803_548_012_279_830_557_731_564_719_736_971_029_660_387_468_805;
-    uint256 _pubKeyY0 =
-        46_098_569_798_045_992_993_621_049_610_647_226_011_837_333_919_273_603_402_527_314_962_291_506_652_186;
+    bytes32 _pubKeyX0 =
+        bytes32(uint256(66_296_829_923_831_658_891_499_717_579_803_548_012_279_830_557_731_564_719_736_971_029_660_387_468_805));
+    bytes32 _pubKeyY0 =
+        bytes32(uint256(46_098_569_798_045_992_993_621_049_610_647_226_011_837_333_919_273_603_402_527_314_962_291_506_652_186));
 
-    uint256 _pubKeyX1 =
-        77_427_310_596_034_628_445_756_159_459_159_056_108_500_819_865_614_675_054_701_790_516_611_205_123_311;
-    uint256 _pubKeyY1 =
-        20_591_151_874_462_689_689_754_215_152_304_668_244_192_265_896_034_279_288_204_806_249_532_173_935_644;
+    bytes32 _pubKeyX1 =
+        bytes32(uint256(77_427_310_596_034_628_445_756_159_459_159_056_108_500_819_865_614_675_054_701_790_516_611_205_123_311));
+    bytes32 _pubKeyY1 =
+        bytes32(uint256(20_591_151_874_462_689_689_754_215_152_304_668_244_192_265_896_034_279_288_204_806_249_532_173_935_644));
 
     // The digest that the test WebAuthn signatures were created for
     bytes32 constant TEST_DIGEST =
@@ -142,9 +142,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
             pubKeyX: _pubKeyX0,
             pubKeyY: _pubKeyY0
         });
-        bool[] memory requireUVs = new bool[](1);
-        requireUVs[0] = false;
-        return abi.encode(keyIds, creds, requireUVs, address(0), uint48(0));
+        return abi.encode(keyIds, creds, address(0), uint48(0));
     }
 
     function _installData2() internal view returns (bytes memory) {
@@ -161,10 +159,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
             pubKeyX: _pubKeyX1,
             pubKeyY: _pubKeyY1
         });
-        bool[] memory requireUVs = new bool[](2);
-        requireUVs[0] = false;
-        requireUVs[1] = true;
-        return abi.encode(keyIds, creds, requireUVs, address(0), uint48(0));
+        return abi.encode(keyIds, creds, address(0), uint48(0));
     }
 
     function _install1() internal {
@@ -184,13 +179,13 @@ contract WebAuthnValidatorV2Test is BaseTest {
         assertTrue(validator.isInitialized(address(this)));
         assertEq(validator.credentialCount(address(this)), 2);
 
-        // keyId 10, requireUV=false → pubKey0
-        (uint256 px0, uint256 py0) = validator.getCredential(10, false, address(this));
+        // keyId 10 → pubKey0
+        (bytes32 px0, bytes32 py0) = validator.getCredential(10, address(this));
         assertEq(px0, _pubKeyX0);
         assertEq(py0, _pubKeyY0);
 
-        // keyId 42, requireUV=true → pubKey1
-        (uint256 px1, uint256 py1) = validator.getCredential(42, true, address(this));
+        // keyId 42 → pubKey1
+        (bytes32 px1, bytes32 py1) = validator.getCredential(42, address(this));
         assertEq(px1, _pubKeyX1);
         assertEq(py1, _pubKeyY1);
     }
@@ -205,9 +200,8 @@ contract WebAuthnValidatorV2Test is BaseTest {
         uint16[] memory keyIds = new uint16[](0);
         WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
             new WebAuthnValidatorV2.WebAuthnCredential[](0);
-        bool[] memory requireUVs = new bool[](0);
         vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
-        validator.onInstall(abi.encode(keyIds, creds, requireUVs, address(0), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
     function test_OnInstall_RevertWhen_ZeroPubKey() public {
@@ -215,11 +209,9 @@ contract WebAuthnValidatorV2Test is BaseTest {
         keyIds[0] = 0;
         WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
             new WebAuthnValidatorV2.WebAuthnCredential[](1);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: 0, pubKeyY: 0 });
-        bool[] memory requireUVs = new bool[](1);
-        requireUVs[0] = false;
+        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: bytes32(0), pubKeyY: bytes32(0) });
         vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
-        validator.onInstall(abi.encode(keyIds, creds, requireUVs, address(0), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
     function test_OnInstall_RevertWhen_DuplicateKeyId() public {
@@ -230,26 +222,8 @@ contract WebAuthnValidatorV2Test is BaseTest {
             new WebAuthnValidatorV2.WebAuthnCredential[](2);
         creds[0] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
         creds[1] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: _pubKeyX1, pubKeyY: _pubKeyY1 });
-        bool[] memory requireUVs = new bool[](2);
-        requireUVs[0] = false;
-        requireUVs[1] = false;
         vm.expectRevert(abi.encodeWithSelector(WebAuthnValidatorV2.KeyIdAlreadyExists.selector, 5));
-        validator.onInstall(abi.encode(keyIds, creds, requireUVs, address(0), uint48(0)));
-    }
-
-    function test_OnInstall_RevertWhen_SameKeyId_DifferentRequireUV() public {
-        uint16[] memory keyIds = new uint16[](2);
-        keyIds[0] = 5;
-        keyIds[1] = 5;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](2);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
-        creds[1] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: _pubKeyX1, pubKeyY: _pubKeyY1 });
-        bool[] memory requireUVs = new bool[](2);
-        requireUVs[0] = false;
-        requireUVs[1] = true;
-        vm.expectRevert(abi.encodeWithSelector(WebAuthnValidatorV2.KeyIdAlreadyExists.selector, 5));
-        validator.onInstall(abi.encode(keyIds, creds, requireUVs, address(0), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
     function test_OnUninstall() public {
@@ -271,51 +245,44 @@ contract WebAuthnValidatorV2Test is BaseTest {
         _install1();
         assertEq(validator.credentialCount(address(this)), 1);
 
-        validator.addCredential(99, _pubKeyX1, _pubKeyY1, true);
+        validator.addCredential(99, _pubKeyX1, _pubKeyY1);
         assertEq(validator.credentialCount(address(this)), 2);
 
-        (uint256 px, uint256 py) = validator.getCredential(99, true, address(this));
+        (bytes32 px, bytes32 py) = validator.getCredential(99, address(this));
         assertEq(px, _pubKeyX1);
         assertEq(py, _pubKeyY1);
     }
 
     function test_AddCredential_RevertWhen_NotInitialized() public {
         vm.expectRevert();
-        validator.addCredential(0, _pubKeyX0, _pubKeyY0, false);
+        validator.addCredential(0, _pubKeyX0, _pubKeyY0);
     }
 
     function test_AddCredential_RevertWhen_ZeroPubKey() public {
         _install1();
         vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
-        validator.addCredential(1, 0, 0, false);
+        validator.addCredential(1, bytes32(0), bytes32(0));
     }
 
     function test_AddCredential_RevertWhen_DuplicateKeyId() public {
-        _install1(); // keyId 0 with requireUV=false
+        _install1(); // keyId 0
         vm.expectRevert(abi.encodeWithSelector(WebAuthnValidatorV2.KeyIdAlreadyExists.selector, 0));
-        validator.addCredential(0, _pubKeyX1, _pubKeyY1, false); // same credKey
-    }
-
-    function test_AddCredential_RevertWhen_SameKeyId_DifferentRequireUV() public {
-        _install1(); // keyId 0 with requireUV=false
-        // Same keyId but different requireUV should now revert — prevents requireUV bypass
-        vm.expectRevert(abi.encodeWithSelector(WebAuthnValidatorV2.KeyIdAlreadyExists.selector, 0));
-        validator.addCredential(0, _pubKeyX1, _pubKeyY1, true);
+        validator.addCredential(0, _pubKeyX1, _pubKeyY1);
     }
 
     function test_RemoveCredential() public {
-        _install2(); // keyIds 10 (requireUV=false) and 42 (requireUV=true)
+        _install2(); // keyIds 10 and 42
         assertEq(validator.credentialCount(address(this)), 2);
 
-        validator.removeCredential(10, false);
+        validator.removeCredential(10);
         assertEq(validator.credentialCount(address(this)), 1);
 
         // keyId 10 credential should be cleared
-        (uint256 px,) = validator.getCredential(10, false, address(this));
-        assertEq(px, 0, "Removed credential should be zeroed");
+        (bytes32 px,) = validator.getCredential(10, address(this));
+        assertEq(px, bytes32(0), "Removed credential should be zeroed");
 
         // keyId 42 should still exist
-        (uint256 px42, uint256 py42) = validator.getCredential(42, true, address(this));
+        (bytes32 px42, bytes32 py42) = validator.getCredential(42, address(this));
         assertEq(px42, _pubKeyX1);
         assertEq(py42, _pubKeyY1);
     }
@@ -323,13 +290,13 @@ contract WebAuthnValidatorV2Test is BaseTest {
     function test_RemoveCredential_RevertWhen_LastCredential() public {
         _install1();
         vm.expectRevert(WebAuthnValidatorV2.CannotRemoveLastCredential.selector);
-        validator.removeCredential(0, false);
+        validator.removeCredential(0);
     }
 
     function test_RemoveCredential_RevertWhen_NotFound() public {
         _install2();
         vm.expectRevert(abi.encodeWithSelector(WebAuthnValidatorV2.CredentialNotFound.selector, 999));
-        validator.removeCredential(999, false);
+        validator.removeCredential(999);
     }
 
     function test_GetCredKeys() public {
@@ -343,7 +310,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
     //////////////////////////////////////////////////////////////////////////*/
 
     function test_ValidateUserOp_RegularSigning() public {
-        _install1(); // keyId 0, requireUV=false
+        _install1(); // keyId 0
 
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = address(this);
@@ -385,29 +352,29 @@ contract WebAuthnValidatorV2Test is BaseTest {
     }
 
     function test_ValidateUserOp_FailWhen_WrongRequireUV() public {
-        _install1(); // keyId 0 with requireUV=false
+        _install1(); // keyId 0
 
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = address(this);
 
-        // Use requireUV=true in signature but credential was stored with requireUV=false
+        // Use requireUV=1 in signature — should fail verification since UV flag is enforced at validation time
         userOp.signature =
             _buildRegularSignature(0, 1, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST));
 
         uint256 validationData =
             ERC7579ValidatorBase.ValidationData.unwrap(validator.validateUserOp(userOp, TEST_DIGEST));
-        assertEq(validationData, 1, "Should fail with wrong requireUV (different credKey)");
+        assertEq(validationData, 1, "Should fail with requireUV mismatch");
     }
 
     function test_ValidateUserOp_WithArbitraryKeyId() public {
-        _install2(); // keyIds 10 (requireUV=false) and 42 (requireUV=true), pubKey0 at keyId 10
+        _install2(); // keyIds 10 and 42, pubKey0 at keyId 10
 
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = address(this);
 
         string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
 
-        // Use keyId 10, requireUV=false which has pubKey0 (matches the test vectors)
+        // Use keyId 10 which has pubKey0 (matches the test vectors)
         userOp.signature = _buildRegularSignature(10, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
 
         uint256 validationData =

@@ -99,12 +99,10 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
     /// @param keyId Unique 16-bit identifier for this credential within the account
     /// @param pubKeyX X coordinate of the P-256 public key
     /// @param pubKeyY Y coordinate of the P-256 public key
-    /// @param requireUV Whether user verification (biometric/PIN) is required for this credential
     struct NewCredential {
         uint16 keyId;
-        uint256 pubKeyX;
-        uint256 pubKeyY;
-        bool requireUV;
+        bytes32 pubKeyX;
+        bytes32 pubKeyY;
     }
 
     /// @notice Per-account recovery configuration
@@ -126,7 +124,7 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
 
     /// @notice EIP-712 typehash for the RecoverPasskey struct
     /// @dev Sourced from EIP712Lib (single source of truth). All credential fields (keyId,
-    ///      pubKeyX, pubKeyY, requireUV) plus account, chainId, nonce, and expiry are included
+    ///      pubKeyX, pubKeyY) plus account, chainId, nonce, and expiry are included
     ///      in the signed digest, preventing front-running attacks that substitute credential data.
     bytes32 public constant RECOVER_PASSKEY_TYPEHASH = EIP712Lib.RECOVER_PASSKEY_TYPEHASH;
 
@@ -195,7 +193,7 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
      *      (i.e., the account has at least one existing credential). This check is what prevents
      *      recovery from being used to initialize an account that has not installed the module.
      * @param account The smart account to add the credential to
-     * @param cred The new credential parameters (keyId, pubKeyX, pubKeyY, requireUV)
+     * @param cred The new credential parameters (keyId, pubKeyX, pubKeyY)
      */
     function _addCredentialRecovery(address account, NewCredential calldata cred) internal virtual;
 
@@ -299,15 +297,15 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
      *      This requires at least one existing credential to sign the recovery; it cannot be
      *      used to recover from zero credentials.
      *
-     *      The NewCredential struct fields (keyId, pubKeyX, pubKeyY, requireUV) are all bound
-     *      in the signed digest, preventing front-running attacks that substitute credential
-     *      parameters between signature creation and on-chain submission.
+     *      The NewCredential struct fields (keyId, pubKeyX, pubKeyY) are all bound in the
+     *      signed digest, preventing front-running attacks that substitute credential parameters
+     *      between signature creation and on-chain submission.
      *
      *      NOTE: This only ADDS a new credential. It does NOT revoke the existing (potentially
      *      compromised) credential. The account must separately call `removeCredential()`.
      * @param account The smart account to recover
      * @param chainId Chain restriction: 0 for any chain, or a specific block.chainid
-     * @param cred The new credential to add (keyId, pubKeyX, pubKeyY, requireUV)
+     * @param cred The new credential to add (keyId, pubKeyX, pubKeyY)
      * @param nonce Unique nonce to prevent replay (chosen by the signer)
      * @param expiry Timestamp after which this recovery is no longer valid
      * @param signature Packed WebAuthn signature from an existing credential on the account
@@ -355,7 +353,7 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
      *      compromised) credential. The account must separately call `removeCredential()`.
      * @param account The smart account to recover
      * @param chainId Chain restriction: 0 for any chain, or a specific block.chainid
-     * @param cred The new credential to add (keyId, pubKeyX, pubKeyY, requireUV)
+     * @param cred The new credential to add (keyId, pubKeyX, pubKeyY)
      * @param nonce Unique nonce to prevent replay (chosen by the signer)
      * @param expiry Timestamp after which this recovery is no longer valid
      * @param guardianSig Signature from the guardian (ECDSA for EOA, or EIP-1271 for smart contract)
@@ -459,7 +457,7 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
         // is included in the struct hash -- this enables the chainId=0 cross-chain recovery pattern.
         return _hashTypedDataSansChainId(
             EIP712Lib.recoverPasskeyHash(
-                account, chainId, cred.keyId, cred.pubKeyX, cred.pubKeyY, cred.requireUV, nonce, expiry
+                account, chainId, cred.keyId, cred.pubKeyX, cred.pubKeyY, nonce, expiry
             )
         );
     }

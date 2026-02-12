@@ -55,12 +55,10 @@ contract GasComparisonTest is BaseTest {
         WebAuthnValidatorV2.WebAuthnCredential[] memory v2Creds =
             new WebAuthnValidatorV2.WebAuthnCredential[](1);
         v2Creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
-            pubKeyX: _pubKeyX,
-            pubKeyY: _pubKeyY
+            pubKeyX: bytes32(_pubKeyX),
+            pubKeyY: bytes32(_pubKeyY)
         });
-        bool[] memory requireUVs = new bool[](1);
-        requireUVs[0] = false;
-        v2.onInstall(abi.encode(keyIds, v2Creds, requireUVs, address(0), uint48(0)));
+        v2.onInstall(abi.encode(keyIds, v2Creds, address(0), uint48(0)));
     }
 
     /// @dev Compute calldata gas cost: 16 per non-zero byte, 4 per zero byte

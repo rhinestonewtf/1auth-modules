@@ -37,7 +37,7 @@ library EIP712Lib {
 
     /// @dev EIP-712 typehash for recovery operations
     bytes32 internal constant RECOVER_PASSKEY_TYPEHASH = keccak256(
-        "RecoverPasskey(address account,uint256 chainId,uint16 newKeyId,uint256 newPubKeyX,uint256 newPubKeyY,bool newRequireUV,uint256 nonce,uint48 expiry)"
+        "RecoverPasskey(address account,uint256 chainId,uint16 newKeyId,bytes32 newPubKeyX,bytes32 newPubKeyY,uint256 nonce,uint48 expiry)"
     );
 
     /*//////////////////////////////////////////////////////////////
@@ -59,9 +59,8 @@ library EIP712Lib {
         address account,
         uint256 chainId,
         uint16 keyId,
-        uint256 pubKeyX,
-        uint256 pubKeyY,
-        bool requireUV,
+        bytes32 pubKeyX,
+        bytes32 pubKeyY,
         uint256 nonce,
         uint48 expiry
     )
@@ -74,9 +73,8 @@ library EIP712Lib {
             bytes32(uint256(uint160(account))),
             bytes32(chainId),
             bytes32(uint256(keyId)),
-            bytes32(pubKeyX),
-            bytes32(pubKeyY),
-            bytes32(uint256(requireUV ? 1 : 0)),
+            pubKeyX,
+            pubKeyY,
             bytes32(uint256(nonce)),
             bytes32(uint256(expiry))
         );

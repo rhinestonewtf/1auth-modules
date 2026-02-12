@@ -74,7 +74,6 @@ mod tests {
                     "0x7d46f725a5427ae45a9569259bf67e1e16b187d7b3ad1ed70138c4f0409677d1"
                         .to_string(),
             }],
-            require_uvs: vec![false],
             guardian: None,
             guardian_timelock: None,
         };
