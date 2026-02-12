@@ -54,10 +54,17 @@ contract GasComparisonTest is BaseTest {
     function setUp() public virtual override {
         BaseTest.setUp();
 
-        // Deploy P256 verifier at the Solady VERIFIER address so Solady's P256.sol can verify signatures
-        address SOLADY_P256_VERIFIER = 0x000000000000D01eA45F9eFD5c54f037Fa57Ea1a;
-        P256VerifierWrapper verifier_ = new P256VerifierWrapper();
-        vm.etch(SOLADY_P256_VERIFIER, address(verifier_).code);
+        // Deploy a minimal mock at both precompile addresses.
+        // Returns uint256(1) for any input — our test sigs are known-valid.
+        // This simulates the native RIP-7212 precompile (~3,450 gas) without
+        // paying ~200k for the Solidity FCL fallback.
+        // Bytecode: PUSH1 0x01, PUSH0, MSTORE, PUSH1 0x20, PUSH0, RETURN
+        //           (6001 5F 52 6020 5F F3)
+        bytes memory mockCode = hex"60015F5260205FF3";
+        // RIP-7212 precompile address (used by both webauthn-sol V1 and Solady V2)
+        vm.etch(address(0x100), mockCode);
+        // Solady's fallback verifier address (V2 falls back here if 0x100 returns empty)
+        vm.etch(0x000000000000D01eA45F9eFD5c54f037Fa57Ea1a, mockCode);
 
         v1 = new WebAuthnValidator();
         v2 = new WebAuthnValidatorV2();
@@ -205,7 +212,7 @@ contract GasComparisonTest is BaseTest {
             s: SIG_S
         });
 
-        bytes memory sig = abi.encode(credIds, false, auths);
+        bytes memory sig = abi.encode(credIds, true, auths);
 
         uint256 gasBefore = gasleft();
         bytes4 result = v1.isValidSignatureWithSender(address(this), TEST_DIGEST, sig);
