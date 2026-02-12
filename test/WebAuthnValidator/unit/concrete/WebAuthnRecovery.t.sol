@@ -3,6 +3,7 @@ pragma solidity ^0.8.23;
 
 import { BaseTest } from "test/Base.t.sol";
 import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
+import { IWebAuthnValidatorV2 } from "src/WebAuthnValidator/IWebAuthnValidatorV2.sol";
 import { WebAuthnRecoveryBase } from "src/WebAuthnValidator/WebAuthnRecoveryBase.sol";
 import { ERC7579HybridValidatorBase, ERC7579ValidatorBase } from "modulekit/Modules.sol";
 import { WebAuthn } from "solady/utils/WebAuthn.sol";
@@ -443,7 +444,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, 0, expiry);
         mockGuardian.approveDigest(digest);
 
-        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
         validator.recoverWithGuardian(address(this), block.chainid, cred, 0, expiry, "");
     }
 
@@ -457,7 +458,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, 0, expiry);
         mockGuardian.approveDigest(digest);
 
-        vm.expectRevert(abi.encodeWithSelector(WebAuthnValidatorV2.KeyIdAlreadyExists.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IWebAuthnValidatorV2.KeyIdAlreadyExists.selector, 0));
         validator.recoverWithGuardian(address(this), block.chainid, cred, 0, expiry, "");
     }
 

@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import { Script, console2 } from "forge-std/Script.sol";
 import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
 import { WebAuthnRecoveryBase } from "src/WebAuthnValidator/WebAuthnRecoveryBase.sol";
+import { EIP712Lib } from "src/WebAuthnValidator/lib/EIP712Lib.sol";
 
 /// @notice Generates golden test vectors as JSON for cross-language validation.
 /// @dev Run: forge script script/GenerateGoldenVectors.s.sol -vvv
@@ -36,8 +37,8 @@ contract GenerateGoldenVectors is Script {
 
     function _buildTypehashes(WebAuthnValidatorV2 v) internal returns (string memory) {
         string memory obj = "typehashes";
-        vm.serializeBytes32(obj, "passkey_digest", v.PASSKEY_DIGEST_TYPEHASH());
-        vm.serializeBytes32(obj, "passkey_multichain", v.PASSKEY_MULTICHAIN_TYPEHASH());
+        vm.serializeBytes32(obj, "passkey_digest", EIP712Lib.PASSKEY_DIGEST_TYPEHASH);
+        vm.serializeBytes32(obj, "passkey_multichain", EIP712Lib.PASSKEY_MULTICHAIN_TYPEHASH);
         return vm.serializeBytes32(obj, "recover_passkey", v.RECOVER_PASSKEY_TYPEHASH());
     }
 
