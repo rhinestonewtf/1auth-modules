@@ -173,6 +173,7 @@ fn golden_recovery_digest() {
         new_key_id: r.new_key_id as u16,
         new_pub_key_x: decimal_to_hex_u256(&r.new_pub_key_x),
         new_pub_key_y: decimal_to_hex_u256(&r.new_pub_key_y),
+        replace: false,
         nonce: decimal_to_hex_u256(&r.nonce.to_string()),
         expiry: r.expiry,
         verifying_contract: v.validator_address.clone(),

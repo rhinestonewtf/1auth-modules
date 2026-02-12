@@ -5,14 +5,15 @@ import { ERC7579HybridValidatorBase } from "modulekit/Modules.sol";
 import { PackedUserOperation } from "modulekit/external/ERC4337.sol";
 import { MerkleProofLib } from "solady/utils/MerkleProofLib.sol";
 import { EnumerableSetLib } from "solady/utils/EnumerableSetLib.sol";
+import { EfficientHashLib } from "solady/utils/EfficientHashLib.sol";
 import { WebAuthn } from "solady/utils/WebAuthn.sol";
 import {
     MODULE_TYPE_STATELESS_VALIDATOR as TYPE_STATELESS_VALIDATOR
 } from "modulekit/module-bases/utils/ERC7579Constants.sol";
 import { WebAuthnRecoveryBase } from "./WebAuthnRecoveryBase.sol";
+import { UVExemptBase } from "./UVExemptBase.sol";
 import { IWebAuthnValidatorV2 } from "./IWebAuthnValidatorV2.sol";
 import { EIP712Lib } from "./lib/EIP712Lib.sol";
-import { OriginLib } from "./lib/OriginLib.sol";
 import { P256Lib } from "./lib/P256Lib.sol";
 import { MAX_MERKLE_DEPTH, MAX_CREDENTIALS } from "./lib/Constants.sol";
 
@@ -26,10 +27,9 @@ import { MAX_MERKLE_DEPTH, MAX_CREDENTIALS } from "./lib/Constants.sol";
  *
  *      KNOWN SECURITY CONSIDERATIONS:
  *
- *      Recovery is additive: Recovery (via WebAuthnRecoveryBase) only adds new credentials --
- *      compromised keys remain active until explicitly removed via removeCredential(). If
- *      recovery is needed because a key was compromised, the account must separately revoke
- *      the old key after regaining control.
+ *      Recovery supports in-place rotation: When replace is true in the recovery struct,
+ *      the credential at keyId has its public key overwritten in-place. When replace is
+ *      false, recovery is additive (new credential added, existing keys remain).
  *
  *      Guardian timelock: Guardian changes support an optional timelock via proposeGuardian().
  *      When guardianTimelock is zero (the default), changes take effect immediately. When
@@ -41,8 +41,9 @@ import { MAX_MERKLE_DEPTH, MAX_CREDENTIALS } from "./lib/Constants.sol";
  *      the EIP-712 domain separator. The module must be deployed at the same address on all
  *      target chains (e.g., via CREATE2) for cross-chain signatures to verify.
  */
-contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase, IWebAuthnValidatorV2 {
+contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase, UVExemptBase, IWebAuthnValidatorV2 {
     using EnumerableSetLib for EnumerableSetLib.Uint256Set;
+    using EfficientHashLib for bytes32;
 
     /*//////////////////////////////////////////////////////////////
                                 STRUCTS
@@ -77,24 +78,6 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
     /// @notice Passkey credentials per account
     /// @dev credKey = uint256(keyId)
     mapping(address account => PasskeyCredentials) internal _passkeyCredentials;
-
-    /// @notice Per-account epoch counter for UV exemptions -- incremented on uninstall to
-    ///         invalidate all previously-configured exemptions without iterating the mapping.
-    mapping(address account => uint256 epoch) internal _uvExemptEpoch;
-
-    /**
-     * @notice Origin-based UV exemption mapping, keyed by (account, epoch, topOriginHash, originHash).
-     * @dev When a signer requests to skip UV (requestSkipUV=true in signature), the contract
-     *      parses topOrigin and origin from clientDataJSON and checks this mapping. If exempt,
-     *      the signature is verified with requireUV=false. If not exempt, validation fails.
-     *      If topOrigin is absent (direct access or old browser), falls back to requireUV=true.
-     *      The epoch layer ensures all exemptions are invalidated on uninstall -- the epoch
-     *      advances and old entries become unreachable without iterating or deleting storage.
-     */
-    mapping(
-        address account
-            => mapping(uint256 epoch => mapping(bytes32 topOriginHash => mapping(bytes32 originHash => bool uvExempt)))
-    ) internal _uvExemptOrigins;
 
     /*//////////////////////////////////////////////////////////////
                                  CONFIG
@@ -133,16 +116,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
 
         PasskeyCredentials storage pc = _passkeyCredentials[account];
         for (uint256 i; i < length; ++i) {
-            // Validate that each public key lies on the P-256 curve. This prevents registering
-            // invalid keys that would always fail verification, locking the account.
-            if (!P256Lib.isOnCurve(uint256(creds[i].pubKeyX), uint256(creds[i].pubKeyY))) revert InvalidPublicKey();
-
-            // Compute the credential storage key from keyId. EnumerableSetLib.add returns
-            // false if the key already exists, catching duplicate keyId combinations.
-            uint256 ck = _credKey(keyIds[i]);
-            if (!pc.enabledCredKeys.add(ck)) revert KeyIdAlreadyExists(keyIds[i]);
-            pc.credentials[ck] = creds[i];
-            emit CredentialAdded(account, keyIds[i], creds[i].pubKeyX, creds[i].pubKeyY);
+            _storeCredential(pc, account, keyIds[i], creds[i].pubKeyX, creds[i].pubKeyY);
         }
 
         // Guardian is optional -- address(0) means no guardian is configured.
@@ -190,9 +164,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         delete _recoveryConfig[account].guardianActivatesAt;
         delete _recoveryConfig[account].guardianTimelock;
 
-        // Advance UV exemption epoch to invalidate all previously-configured exemptions.
-        // Old entries remain in storage but are unreachable at the new epoch.
-        unchecked { ++_uvExemptEpoch[account]; }
+        _invalidateUVExemptions(account);
 
         emit ModuleUninitialized(account);
     }
@@ -262,7 +234,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         // since there would be no valid signer to authorize operations or add new credentials
         if (len <= 1) revert CannotRemoveLastCredential();
 
-        uint256 ck = _credKey(keyId);
+        uint256 ck = uint256(keyId);
 
         // EnumerableSetLib.remove returns false if the key was not in the set
         if (!pc.enabledCredKeys.remove(ck)) revert CredentialNotFound(keyId);
@@ -286,47 +258,9 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         view
         returns (bytes32 pubKeyX, bytes32 pubKeyY)
     {
-        uint256 ck = _credKey(keyId);
+        uint256 ck = uint256(keyId);
         WebAuthnCredential storage cred = _passkeyCredentials[account].credentials[ck];
         return (cred.pubKeyX, cred.pubKeyY);
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                            UV EXEMPT ORIGINS
-    //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Configure a (topOrigin, origin) pair as UV-exempt for the caller's account
-     * @dev When a third-party app (e.g., game.xyz) embeds the passkey RP via iframe,
-     *      the clientDataJSON contains topOrigin (the embedding app) and origin (the RP).
-     *      Setting exempt=true allows signatures from that (topOrigin, origin) pair to
-     *      skip user verification (biometric/PIN).
-     * @param topOriginHash keccak256 of the topOrigin string (e.g., keccak256("https://game.xyz"))
-     * @param originHash keccak256 of the origin string (e.g., keccak256("https://passkey.1auth.box"))
-     * @param exempt True to allow UV-less signing from this origin pair, false to revoke
-     */
-    function setUVExemptOrigin(bytes32 topOriginHash, bytes32 originHash, bool exempt) external {
-        _uvExemptOrigins[msg.sender][_uvExemptEpoch[msg.sender]][topOriginHash][originHash] = exempt;
-        emit UVExemptOriginSet(msg.sender, topOriginHash, originHash, exempt);
-    }
-
-    /**
-     * @notice Check if a (topOrigin, origin) pair is UV-exempt for an account
-     * @param account The smart account to query
-     * @param topOriginHash keccak256 of the topOrigin string
-     * @param originHash keccak256 of the origin string
-     * @return True if the pair is UV-exempt
-     */
-    function isUVExemptOrigin(
-        address account,
-        bytes32 topOriginHash,
-        bytes32 originHash
-    )
-        external
-        view
-        returns (bool)
-    {
-        return _uvExemptOrigins[account][_uvExemptEpoch[account]][topOriginHash][originHash];
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -394,6 +328,11 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
      *      does not look up credentials by account. Instead, the caller provides the public key
      *      and validation parameters in `data`, and the WebAuthn signature in `signature`.
      *      This enables off-chain verifiers to validate signatures without the module being installed.
+     *
+     *      NOTE: Unlike the stateful validation paths (validateUserOp, isValidSignatureWithSender)
+     *      which return false/VALIDATION_FAILED on invalid input per ERC-4337, this function REVERTS
+     *      on malformed input (InvalidSignatureData, ProofTooLong, InvalidMerkleProof). It only
+     *      returns false for valid-format-but-wrong-signature cases (when WebAuthn.verify fails).
      *
      *      The `data` layout mirrors the stateful signature format (proof before credential data):
      *        [0]       proofLength (uint8)
@@ -492,13 +431,11 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
 
     /**
      * @dev Hook called by WebAuthnRecoveryBase during recovery (recoverWithPasskey or
-     *      recoverWithGuardian). Delegates to _addCredential which validates the public key
-     *      is on the P-256 curve and checks that the credential capacity has not been exceeded.
-     *      Recovery is additive only -- this adds a new credential but does NOT remove existing
-     *      ones. If recovery was triggered because a key was compromised, the compromised
-     *      credential must be separately removed via removeCredential() after regaining access.
-     * @param account The smart account to add the credential to
-     * @param cred The new credential parameters (keyId, pubKeyX, pubKeyY)
+     *      recoverWithGuardian). When replace is false, delegates to _addCredential
+     *      (additive). When replace is true, overwrites the existing credential at
+     *      keyId in-place with the new public key (rotation).
+     * @param account The smart account to add/replace the credential on
+     * @param cred The new credential parameters (keyId, pubKeyX, pubKeyY, replace)
      */
     function _addCredentialRecovery(
         address account,
@@ -507,22 +444,16 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         internal
         override
     {
-        _addCredential(account, cred.keyId, cred.pubKeyX, cred.pubKeyY);
+        if (cred.replace) {
+            _replaceCredential(account, cred.keyId, cred.pubKeyX, cred.pubKeyY);
+        } else {
+            _addCredential(account, cred.keyId, cred.pubKeyX, cred.pubKeyY);
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
                                 INTERNAL
     //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Compute the credential storage key from keyId
-     * @dev Simple cast from uint16 to uint256 for use as a mapping key.
-     * @param keyId 16-bit credential identifier
-     * @return The credential storage key
-     */
-    function _credKey(uint16 keyId) internal pure returns (uint256) {
-        return uint256(keyId);
-    }
 
     /**
      * @notice Chain-specific EIP-712 challenge for single operation signing
@@ -534,7 +465,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
      * @return The chain-specific EIP-712 hash to be used as the WebAuthn challenge
      */
     function _passkeyDigest(bytes32 digest) internal view returns (bytes32) {
-        return _hashTypedData(EIP712Lib.passkeyDigestHash(digest));
+        return _hashTypedData(EIP712Lib.PASSKEY_DIGEST_TYPEHASH.hash(digest));
     }
 
     /**
@@ -547,7 +478,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
      * @return The chain-agnostic EIP-712 hash to be used as the WebAuthn challenge
      */
     function _passkeyMultichain(bytes32 root) internal view returns (bytes32) {
-        return _hashTypedDataSansChainId(EIP712Lib.passkeyMultichainHash(root));
+        return _hashTypedDataSansChainId(EIP712Lib.PASSKEY_MULTICHAIN_TYPEHASH.hash(root));
     }
 
     /**
@@ -573,15 +504,10 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
     }
 
     /**
-     * @notice Add a credential with full validation
-     * @dev Shared by both addCredential() (user-initiated) and _addCredentialRecovery()
-     *      (recovery-initiated). Validates the public key is on the P-256 curve, checks
-     *      the module is initialized, ensures capacity is not exceeded, and rejects duplicate
-     *      keyIds.
-     * @param account The smart account to add the credential to
-     * @param keyId 16-bit credential identifier
-     * @param pubKeyX X coordinate of the P-256 public key
-     * @param pubKeyY Y coordinate of the P-256 public key
+     * @notice Add a credential to an initialized account with capacity checks
+     * @dev Shared by addCredential() (user-initiated) and _addCredentialRecovery()
+     *      (recovery-initiated). Validates initialization and capacity, then delegates
+     *      to _storeCredential for the per-credential work.
      */
     function _addCredential(
         address account,
@@ -591,9 +517,6 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
     )
         internal
     {
-        // Validate public key is on the P-256 curve to prevent registering invalid keys
-        if (!P256Lib.isOnCurve(uint256(pubKeyX), uint256(pubKeyY))) revert InvalidPublicKey();
-
         PasskeyCredentials storage pc = _passkeyCredentials[account];
         uint256 len = pc.enabledCredKeys.length();
 
@@ -603,10 +526,56 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         // Enforce the credential cap to bound gas costs during onUninstall iteration
         if (len >= MAX_CREDENTIALS) revert TooManyCredentials();
 
-        // Attempt to add keyId to the set; returns false if already exists
-        uint256 ck = _credKey(keyId);
+        _storeCredential(pc, account, keyId, pubKeyX, pubKeyY);
+    }
+
+    /**
+     * @notice Validate and store a single credential
+     * @dev Shared by onInstall (batch) and _addCredential (single). Validates the public key
+     *      is on the P-256 curve, rejects duplicate keyIds, writes storage, and emits event.
+     *      Callers are responsible for initialization and capacity checks.
+     */
+    function _storeCredential(
+        PasskeyCredentials storage pc,
+        address account,
+        uint16 keyId,
+        bytes32 pubKeyX,
+        bytes32 pubKeyY
+    )
+        internal
+    {
+        if (!P256Lib.isOnCurve(uint256(pubKeyX), uint256(pubKeyY))) revert InvalidPublicKey();
+        uint256 ck = uint256(keyId);
         if (!pc.enabledCredKeys.add(ck)) revert KeyIdAlreadyExists(keyId);
         pc.credentials[ck] = WebAuthnCredential(pubKeyX, pubKeyY);
+        emit CredentialAdded(account, keyId, pubKeyX, pubKeyY);
+    }
+
+    /**
+     * @notice In-place rotation of an existing credential's public key
+     * @dev Used by recovery to overwrite a compromised key. The credential at keyId must
+     *      already exist; its public key is replaced with the new one.
+     */
+    function _replaceCredential(
+        address account,
+        uint16 keyId,
+        bytes32 pubKeyX,
+        bytes32 pubKeyY
+    )
+        internal
+    {
+        PasskeyCredentials storage pc = _passkeyCredentials[account];
+        uint256 len = pc.enabledCredKeys.length();
+
+        if (len == 0) revert NotInitialized(account);
+        if (!P256Lib.isOnCurve(uint256(pubKeyX), uint256(pubKeyY))) revert InvalidPublicKey();
+
+        uint256 ck = uint256(keyId);
+        if (!pc.enabledCredKeys.contains(ck)) revert CredentialNotFound(keyId);
+
+        pc.credentials[ck] = WebAuthnCredential(pubKeyX, pubKeyY);
+
+        emit CredentialRemoved(account, keyId);
         emit CredentialAdded(account, keyId, pubKeyX, pubKeyY);
     }
 
@@ -681,7 +650,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         bool requestSkipUV = uint8(data[3]) != 0;
 
         // Look up the credential by keyId — loaded into memory for cheaper repeated access
-        uint256 ck = _credKey(keyId);
+        uint256 ck = uint256(keyId);
         WebAuthnCredential memory cred = _passkeyCredentials[account].credentials[ck];
 
         // pubKeyX == 0 means this credential slot is empty (never registered or was deleted).
@@ -760,7 +729,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         bool requestSkipUV = uint8(data[proofEnd + 2]) != 0;
 
         // Look up the credential by keyId — loaded into memory for cheaper repeated access
-        uint256 ck = _credKey(keyId);
+        uint256 ck = uint256(keyId);
         WebAuthnCredential memory cred = _passkeyCredentials[account].credentials[ck];
         if (cred.pubKeyX == bytes32(0)) return false;
 
@@ -782,42 +751,6 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         );
     }
 
-    /**
-     * @notice Resolve UV skip request against origin-based UV exemption policy
-     * @dev Extracts clientDataJSON from the packed WebAuthnAuth calldata, then uses
-     *      OriginLib to scan for topOrigin/origin directly from calldata (no memory copy).
-     *      Called only when requestSkipUV=true.
-     * @param account The smart account for exemption lookup
-     * @param packedAuth The packed WebAuthnAuth calldata (r, s, indices, authData, clientDataJSON)
-     * @return requireUV The effective requireUV to pass to WebAuthn.verify
-     * @return allowed False if the UV exemption claim is denied (topOrigin present but not exempt)
-     */
-    function _resolveSkipUV(
-        address account,
-        bytes calldata packedAuth
-    )
-        internal
-        view
-        returns (bool requireUV, bool allowed)
-    {
-        // Packed format: [0:32] r, [32:64] s, [64:66] challengeIdx, [66:68] typeIdx,
-        //                [68:70] adLen, [70:70+adLen] authData, [70+adLen:] clientDataJSON
-        if (packedAuth.length < 70) return (true, true);
-        uint256 adLen = uint16(bytes2(packedAuth[68:70]));
-        if (packedAuth.length < 70 + adLen) return (true, true);
-
-        bytes calldata clientDataJSON = packedAuth[70 + adLen:];
-        (bytes32 originHash, bytes32 topOriginHash) = OriginLib.extractOriginHashes(clientDataJSON);
-
-        // No topOrigin (direct access or old browser) — fallback to requireUV=true
-        if (topOriginHash == bytes32(0)) return (true, true);
-
-        // topOrigin present but not exempt — game didn't set up allowlist
-        if (!_uvExemptOrigins[account][_uvExemptEpoch[account]][topOriginHash][originHash]) return (false, false);
-
-        // Exempt — verify with requireUV=false
-        return (false, true);
-    }
     /*//////////////////////////////////////////////////////////////
                                 METADATA
     //////////////////////////////////////////////////////////////*/

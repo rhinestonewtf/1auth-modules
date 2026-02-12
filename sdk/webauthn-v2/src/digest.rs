@@ -252,6 +252,10 @@ pub struct RecoveryDigestInput {
     pub new_key_id: u16,
     pub new_pub_key_x: HexU256,
     pub new_pub_key_y: HexU256,
+    /// When true, overwrites the existing credential at new_key_id in-place (rotation).
+    /// When false, adds a new credential at new_key_id (additive).
+    #[serde(default)]
+    pub replace: bool,
     pub nonce: HexU256,
     pub expiry: u64,
     pub verifying_contract: HexAddress,
@@ -260,7 +264,7 @@ pub struct RecoveryDigestInput {
 /// keccak256("RecoverPasskey(address account,uint256 chainId,uint16 newKeyId,...)")
 pub fn recover_passkey_typehash() -> [u8; 32] {
     keccak256(
-        b"RecoverPasskey(address account,uint256 chainId,uint16 newKeyId,bytes32 newPubKeyX,bytes32 newPubKeyY,uint256 nonce,uint48 expiry)",
+        b"RecoverPasskey(address account,uint256 chainId,uint16 newKeyId,bytes32 newPubKeyX,bytes32 newPubKeyY,bool replace,uint256 nonce,uint48 expiry)",
     )
 }
 
@@ -272,16 +276,18 @@ pub fn recovery_struct_hash(input: &RecoveryDigestInput) -> Result<[u8; 32], Str
     let key_id = u256_from_u64(input.new_key_id as u64);
     let pub_key_x = parse_u256(&input.new_pub_key_x)?;
     let pub_key_y = parse_u256(&input.new_pub_key_y)?;
+    let replace_val = u256_from_u64(if input.replace { 1 } else { 0 });
     let nonce = parse_u256(&input.nonce)?;
     let expiry = u256_from_u64(input.expiry);
 
-    let mut buf = Vec::with_capacity(8 * 32);
+    let mut buf = Vec::with_capacity(9 * 32);
     buf.extend_from_slice(&typehash);
     buf.extend_from_slice(&account);
     buf.extend_from_slice(&chain_id);
     buf.extend_from_slice(&key_id);
     buf.extend_from_slice(&pub_key_x);
     buf.extend_from_slice(&pub_key_y);
+    buf.extend_from_slice(&replace_val);
     buf.extend_from_slice(&nonce);
     buf.extend_from_slice(&expiry);
 
@@ -483,6 +489,7 @@ mod tests {
                 .to_string(),
             new_pub_key_y: "0x7d46f725a5427ae45a9569259bf67e1e16b187d7b3ad1ed70138c4f0409677d1"
                 .to_string(),
+            replace: false,
             verifying_contract: format!("0x{}", hex::encode(TEST_CONTRACT)),
             nonce: "0x01".to_string(),
             expiry: 1700000000,

@@ -39,7 +39,7 @@ contract GenerateGoldenVectors is Script {
         string memory obj = "typehashes";
         vm.serializeBytes32(obj, "passkey_digest", EIP712Lib.PASSKEY_DIGEST_TYPEHASH);
         vm.serializeBytes32(obj, "passkey_multichain", EIP712Lib.PASSKEY_MULTICHAIN_TYPEHASH);
-        return vm.serializeBytes32(obj, "recover_passkey", v.RECOVER_PASSKEY_TYPEHASH());
+        return vm.serializeBytes32(obj, "recover_passkey", EIP712Lib.RECOVER_PASSKEY_TYPEHASH);
     }
 
     function _buildPasskeyDigests(WebAuthnValidatorV2 v) internal returns (string memory) {
@@ -82,7 +82,8 @@ contract GenerateGoldenVectors is Script {
         WebAuthnRecoveryBase.NewCredential memory cred = WebAuthnRecoveryBase.NewCredential({
             keyId: keyId,
             pubKeyX: bytes32(pubKeyX),
-            pubKeyY: bytes32(pubKeyY)
+            pubKeyY: bytes32(pubKeyY),
+            replace: false
         });
 
         bytes32 digest = v.getRecoverDigest(account, chainId, cred, nonce, expiry);

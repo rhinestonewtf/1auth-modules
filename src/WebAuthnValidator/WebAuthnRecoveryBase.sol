@@ -18,10 +18,10 @@ import { EIP712Lib } from "./lib/EIP712Lib.sol";
 ///
 ///      SECURITY CONSIDERATIONS:
 ///
-///      - Recovery is additive only: Both recovery paths (`recoverWithPasskey` and
-///        `recoverWithGuardian`) only add a new credential. They do NOT revoke existing
-///        compromised credentials. The account must separately call `removeCredential()` on
-///        the inheriting validator to revoke compromised keys after recovery.
+///      - Recovery supports in-place rotation: When `replace` is true in the `NewCredential`
+///        struct, the credential at `keyId` has its public key overwritten in-place,
+///        preventing the compromised key from being used. When `replace` is false,
+///        recovery is additive only (new credential added, existing keys remain active).
 ///
 ///      - Guardian timelock: Guardian changes support an optional timelock. When a non-zero
 ///        guardianTimelock is configured, `proposeGuardian` queues the change and the account
@@ -99,10 +99,13 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
     /// @param keyId Unique 16-bit identifier for this credential within the account
     /// @param pubKeyX X coordinate of the P-256 public key
     /// @param pubKeyY Y coordinate of the P-256 public key
+    /// @param replace When true, overwrites the existing credential at keyId in-place (rotation).
+    ///        When false, adds a new credential at keyId (original additive behavior).
     struct NewCredential {
         uint16 keyId;
         bytes32 pubKeyX;
         bytes32 pubKeyY;
+        bool replace;
     }
 
     /// @notice Per-account recovery configuration
@@ -121,12 +124,6 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
     /*//////////////////////////////////////////////////////////////
                                CONSTANTS
     //////////////////////////////////////////////////////////////*/
-
-    /// @notice EIP-712 typehash for the RecoverPasskey struct
-    /// @dev Sourced from EIP712Lib (single source of truth). All credential fields (keyId,
-    ///      pubKeyX, pubKeyY) plus account, chainId, nonce, and expiry are included
-    ///      in the signed digest, preventing front-running attacks that substitute credential data.
-    bytes32 public constant RECOVER_PASSKEY_TYPEHASH = EIP712Lib.RECOVER_PASSKEY_TYPEHASH;
 
     /*//////////////////////////////////////////////////////////////
                                  STATE
@@ -296,21 +293,22 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Recovers an account by adding a new credential, authorized by an existing passkey
+     * @notice Recovers an account by adding or replacing a credential, authorized by an existing passkey
      * @dev Callable by anyone (permissionless) -- security relies entirely on the cryptographic
      *      verification of the existing passkey's signature over the EIP-712 recovery digest.
      *      This requires at least one existing credential to sign the recovery; it cannot be
      *      used to recover from zero credentials.
      *
-     *      The NewCredential struct fields (keyId, pubKeyX, pubKeyY) are all bound in the
-     *      signed digest, preventing front-running attacks that substitute credential parameters
-     *      between signature creation and on-chain submission.
+     *      The NewCredential struct fields (keyId, pubKeyX, pubKeyY, replace) are all bound
+     *      in the signed digest, preventing front-running attacks that substitute credential
+     *      parameters between signature creation and on-chain submission.
      *
-     *      NOTE: This only ADDS a new credential. It does NOT revoke the existing (potentially
-     *      compromised) credential. The account must separately call `removeCredential()`.
+     *      When replace is true, the existing credential at keyId has its public key overwritten
+     *      in-place. This eliminates the race condition where a compromised key holder could
+     *      remove a recovered key before the owner removes the compromised one.
      * @param account The smart account to recover
      * @param chainId Chain restriction: 0 for any chain, or a specific block.chainid
-     * @param cred The new credential to add (keyId, pubKeyX, pubKeyY)
+     * @param cred The new credential to add/replace (keyId, pubKeyX, pubKeyY, replace)
      * @param nonce Unique nonce to prevent replay (chosen by the signer)
      * @param expiry Timestamp after which this recovery is no longer valid
      * @param signature Packed WebAuthn signature from an existing credential on the account
@@ -337,15 +335,15 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
             revert InvalidRecoverySignature();
         }
 
-        // Add the new credential to the account. This is additive only -- existing
-        // credentials remain active and must be removed separately if compromised.
+        // Add or replace the credential on the account. When replace is true,
+        // the credential at keyId is overwritten in-place with the new public key.
         _addCredentialRecovery(account, cred);
 
         emit PasskeyRecoveryExecuted(account, cred.keyId, nonce);
     }
 
     /**
-     * @notice Recovers an account by adding a new credential, authorized by the account's guardian
+     * @notice Recovers an account by adding or replacing a credential, authorized by the account's guardian
      * @dev Callable by anyone (permissionless) -- security relies on the guardian's signature
      *      over the EIP-712 recovery digest. The guardian must be pre-configured via `proposeGuardian`.
      *
@@ -354,11 +352,11 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
      *      - Smart contract guardians: EIP-1271 `isValidSignature` via staticcall (no re-entrancy risk)
      *      This means the guardian can be a multisig, social recovery contract, or any EIP-1271 signer.
      *
-     *      NOTE: This only ADDS a new credential. It does NOT revoke the existing (potentially
-     *      compromised) credential. The account must separately call `removeCredential()`.
+     *      When replace is true, the existing credential at keyId has its public key overwritten
+     *      in-place, eliminating the additive-only race condition.
      * @param account The smart account to recover
      * @param chainId Chain restriction: 0 for any chain, or a specific block.chainid
-     * @param cred The new credential to add (keyId, pubKeyX, pubKeyY)
+     * @param cred The new credential to add/replace (keyId, pubKeyX, pubKeyY, replace)
      * @param nonce Unique nonce to prevent replay (chosen by the signer)
      * @param expiry Timestamp after which this recovery is no longer valid
      * @param guardianSig Signature from the guardian (ECDSA for EOA, or EIP-1271 for smart contract)
@@ -391,8 +389,8 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
             revert InvalidGuardianSignature();
         }
 
-        // Add the new credential to the account. This is additive only -- existing
-        // credentials remain active and must be removed separately if compromised.
+        // Add or replace the credential on the account. When replace is true,
+        // the credential at keyId is overwritten in-place with the new public key.
         _addCredentialRecovery(account, cred);
 
         emit GuardianRecoveryExecuted(account, _guardian, cred.keyId, nonce);
@@ -462,7 +460,7 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
         // is included in the struct hash -- this enables the chainId=0 cross-chain recovery pattern.
         return _hashTypedDataSansChainId(
             EIP712Lib.recoverPasskeyHash(
-                account, chainId, cred.keyId, cred.pubKeyX, cred.pubKeyY, nonce, expiry
+                account, chainId, cred.keyId, cred.pubKeyX, cred.pubKeyY, cred.replace, nonce, expiry
             )
         );
     }
