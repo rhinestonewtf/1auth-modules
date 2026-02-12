@@ -198,7 +198,6 @@ src/
   WebAuthnValidator/
     WebAuthnValidatorV2.sol      # Main validator contract
     WebAuthnRecoveryBase.sol     # Recovery mixin (passkey + guardian)
-    WebAuthnValidator.sol        # V1 (legacy)
 
 test/
   WebAuthnValidator/

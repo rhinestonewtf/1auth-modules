@@ -1,4 +1,4 @@
-use alloy_primitives::U256;
+use alloy_primitives::{B256, U256};
 use alloy_sol_types::{sol, SolValue};
 use std::str::FromStr;
 
@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 sol! {
     struct WebAuthnCredential {
-        uint256 pubKeyX;
-        uint256 pubKeyY;
+        bytes32 pubKeyX;
+        bytes32 pubKeyY;
     }
 }
 
@@ -18,13 +18,14 @@ type HexAddress = String;
 type HexU256 = String;
 
 /// Input for encoding onInstall data for WebAuthnValidatorV2.
-/// Matches: abi.encode(uint16[] keyIds, WebAuthnCredential[] creds, bool[] requireUVs, address guardian)
+/// Matches: abi.encode(uint16[] keyIds, WebAuthnCredential[] creds, address guardian, uint48 guardianTimelock)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstallInput {
     pub key_ids: Vec<u16>,
     pub credentials: Vec<CredentialInput>,
-    pub require_uvs: Vec<bool>,
     pub guardian: Option<HexAddress>,
+    /// Guardian timelock duration in seconds. 0 or None means proposeGuardian takes effect immediately.
+    pub guardian_timelock: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,8 +36,8 @@ pub struct CredentialInput {
 
 pub fn encode_install(input: &InstallInput) -> Result<(String, Vec<u8>), String> {
     let n = input.key_ids.len();
-    if n != input.credentials.len() || n != input.require_uvs.len() {
-        return Err("key_ids, credentials, and require_uvs must have same length".to_string());
+    if n != input.credentials.len() {
+        return Err("key_ids and credentials must have same length".to_string());
     }
     if n == 0 {
         return Err("at least one credential required".to_string());
@@ -49,17 +50,15 @@ pub fn encode_install(input: &InstallInput) -> Result<(String, Vec<u8>), String>
         .iter()
         .map(|c| {
             let pub_key_x =
-                U256::from_str(&c.pub_key_x).map_err(|e| format!("invalid pubKeyX: {e}"))?;
+                B256::from_str(&c.pub_key_x).map_err(|e| format!("invalid pubKeyX: {e}"))?;
             let pub_key_y =
-                U256::from_str(&c.pub_key_y).map_err(|e| format!("invalid pubKeyY: {e}"))?;
+                B256::from_str(&c.pub_key_y).map_err(|e| format!("invalid pubKeyY: {e}"))?;
             Ok(WebAuthnCredential {
                 pubKeyX: pub_key_x,
                 pubKeyY: pub_key_y,
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
-
-    let require_uvs: Vec<bool> = input.require_uvs.clone();
 
     let guardian = if let Some(ref addr) = input.guardian {
         alloy_primitives::Address::from_str(addr)
@@ -68,7 +67,9 @@ pub fn encode_install(input: &InstallInput) -> Result<(String, Vec<u8>), String>
         alloy_primitives::Address::ZERO
     };
 
-    let encoded = (key_ids, creds, require_uvs, guardian).abi_encode_params();
+    let guardian_timelock = U256::from(input.guardian_timelock.unwrap_or(0));
+
+    let encoded = (key_ids, creds, guardian, guardian_timelock).abi_encode_params();
 
     let hex_str = format!("0x{}", hex::encode(&encoded));
     Ok((hex_str, encoded))
@@ -93,8 +94,8 @@ mod tests {
                 pub_key_y: "0x7d46f725a5427ae45a9569259bf67e1e16b187d7b3ad1ed70138c4f0409677d1"
                     .to_string(),
             }],
-            require_uvs: vec![false],
             guardian: None,
+            guardian_timelock: None,
         };
         let (hex_str, _raw) = encode_install(&input).unwrap();
         assert!(hex_str.starts_with("0x"));
@@ -119,8 +120,8 @@ mod tests {
                         .to_string(),
                 },
             ],
-            require_uvs: vec![false, true],
             guardian: Some("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string()),
+            guardian_timelock: Some(86400), // 1 day
         };
         let (hex_str, _raw) = encode_install(&input).unwrap();
         assert!(hex_str.starts_with("0x"));
@@ -134,8 +135,8 @@ mod tests {
                 pub_key_x: "0x01".to_string(),
                 pub_key_y: "0x02".to_string(),
             }],
-            require_uvs: vec![false],
             guardian: None,
+            guardian_timelock: None,
         };
         assert!(encode_install(&input).is_err());
     }

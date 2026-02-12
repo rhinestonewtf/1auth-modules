@@ -40,7 +40,6 @@ struct RecoveryVector {
     new_key_id: u64,
     new_pub_key_x: String, // decimal from vm.serializeUint
     new_pub_key_y: String, // decimal from vm.serializeUint
-    new_require_uv: bool,
     nonce: u64,
     expiry: u64,
     output: String,
@@ -174,7 +173,6 @@ fn golden_recovery_digest() {
         new_key_id: r.new_key_id as u16,
         new_pub_key_x: decimal_to_hex_u256(&r.new_pub_key_x),
         new_pub_key_y: decimal_to_hex_u256(&r.new_pub_key_y),
-        new_require_uv: r.new_require_uv,
         nonce: decimal_to_hex_u256(&r.nonce.to_string()),
         expiry: r.expiry,
         verifying_contract: v.validator_address.clone(),
