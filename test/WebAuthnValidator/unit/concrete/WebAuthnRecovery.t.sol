@@ -5,7 +5,7 @@ import { BaseTest } from "test/Base.t.sol";
 import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
 import { WebAuthnRecoveryBase } from "src/WebAuthnValidator/WebAuthnRecoveryBase.sol";
 import { ERC7579HybridValidatorBase, ERC7579ValidatorBase } from "modulekit/Modules.sol";
-import { WebAuthn } from "webauthn-sol/src/WebAuthn.sol";
+import { WebAuthn } from "solady/utils/WebAuthn.sol";
 import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.sol";
 import { Base64Url } from "FreshCryptoLib/utils/Base64Url.sol";
 
@@ -83,7 +83,6 @@ contract WebAuthnRecoveryTest is BaseTest {
     function _buildRegularSignature(
         uint16 keyId,
         uint8 requireUV,
-        uint8 usePrecompile,
         uint256 r,
         uint256 s,
         bytes memory authenticatorData,
@@ -97,7 +96,6 @@ contract WebAuthnRecoveryTest is BaseTest {
             uint8(0), // proofLength = 0
             keyId,
             requireUV,
-            usePrecompile,
             r,
             s,
             uint16(CHALLENGE_INDEX),
@@ -116,7 +114,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         creds[0] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
         bool[] memory requireUVs = new bool[](1);
         requireUVs[0] = false;
-        return abi.encode(keyIds, creds, requireUVs, address(0));
+        return abi.encode(keyIds, creds, requireUVs, address(0), uint48(0));
     }
 
     function _install1() internal {
@@ -145,14 +143,14 @@ contract WebAuthnRecoveryTest is BaseTest {
                               GUARDIAN CONFIG TESTS
     //////////////////////////////////////////////////////////////////////////*/
 
-    function test_SetGuardian() public {
-        validator.setGuardian(address(mockGuardian));
+    function test_ProposeGuardian_ImmediateWhenNoTimelock() public {
+        validator.proposeGuardian(address(mockGuardian));
         assertEq(validator.guardian(address(this)), address(mockGuardian));
     }
 
-    function test_SetGuardian_ToZero() public {
-        validator.setGuardian(address(mockGuardian));
-        validator.setGuardian(address(0));
+    function test_ProposeGuardian_ToZero() public {
+        validator.proposeGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(0));
         assertEq(validator.guardian(address(this)), address(0));
     }
 
@@ -164,14 +162,14 @@ contract WebAuthnRecoveryTest is BaseTest {
         creds[0] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
         bool[] memory requireUVs = new bool[](1);
         requireUVs[0] = false;
-        validator.onInstall(abi.encode(keyIds, creds, requireUVs, address(mockGuardian)));
+        validator.onInstall(abi.encode(keyIds, creds, requireUVs, address(mockGuardian), uint48(0)));
 
         assertEq(validator.guardian(address(this)), address(mockGuardian));
     }
 
     function test_OnUninstall_ClearsGuardian() public {
         _install1();
-        validator.setGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(mockGuardian));
         assertEq(validator.guardian(address(this)), address(mockGuardian));
 
         validator.onUninstall("");
@@ -281,7 +279,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         _install1();
 
         // Mark nonce 42 as used by doing a guardian recovery first
-        validator.setGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(mockGuardian));
         uint48 expiry = uint48(block.timestamp + 1000);
         WebAuthnRecoveryBase.NewCredential memory cred = _newCred(5, _pubKeyX1, _pubKeyY1, true);
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, 42, expiry);
@@ -301,7 +299,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1, true);
         // Sign over wrong digest (TEST_DIGEST, not recovery digest)
         string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
-        bytes memory sig = _buildRegularSignature(0, 0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+        bytes memory sig = _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
 
         vm.expectRevert(WebAuthnRecoveryBase.InvalidRecoverySignature.selector);
         validator.recoverWithPasskey(address(this), block.chainid, cred, 0, expiry, sig);
@@ -315,7 +313,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         vm.expectRevert(WebAuthnRecoveryBase.InvalidRecoverySignature.selector);
         validator.recoverWithPasskey(
             address(this), block.chainid, cred, 0, expiry,
-            _buildRegularSignature(0, 0, 0, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST))
+            _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST))
         );
     }
 
@@ -325,7 +323,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         uint48 expiry = uint48(block.timestamp + 1000);
         WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, 0, 0, false);
         string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
-        bytes memory sig = _buildRegularSignature(0, 0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+        bytes memory sig = _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
         vm.expectRevert(WebAuthnRecoveryBase.InvalidRecoverySignature.selector);
         validator.recoverWithPasskey(address(this), block.chainid, cred, 0, expiry, sig);
     }
@@ -341,7 +339,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
     function test_RecoverWithPasskey_ChainIdZero_AnyChain() public {
         _install1();
-        validator.setGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1, true);
@@ -358,7 +356,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_Success() public {
         _install1();
-        validator.setGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 0;
@@ -378,7 +376,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_NonceMarkedUsed() public {
         _install1();
-        validator.setGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 7;
@@ -396,7 +394,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_Expired() public {
         _install1();
-        validator.setGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(mockGuardian));
 
         WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1, true);
         vm.warp(2000);
@@ -406,7 +404,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_NonceAlreadyUsed() public {
         _install1();
-        validator.setGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 0;
@@ -435,7 +433,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_InvalidGuardianSignature() public {
         _install1();
-        validator.setGuardian(address(rejectingGuardian));
+        validator.proposeGuardian(address(rejectingGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1, true);
@@ -445,7 +443,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_ZeroPubKey() public {
         _install1();
-        validator.setGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, 0, 0, false);
@@ -458,7 +456,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_DuplicateCredKey() public {
         _install1(); // keyId 0, requireUV=false
-        validator.setGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         WebAuthnRecoveryBase.NewCredential memory cred = _newCred(0, _pubKeyX1, _pubKeyY1, false);
@@ -471,7 +469,7 @@ contract WebAuthnRecoveryTest is BaseTest {
     }
 
     function test_RecoverWithGuardian_RevertWhen_NotInitialized() public {
-        validator.setGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1, true);
@@ -485,7 +483,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_InvalidChainId() public {
         _install1();
-        validator.setGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1, true);
@@ -495,7 +493,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_ChainIdZero_AnyChain() public {
         _install1();
-        validator.setGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1, true);
@@ -514,7 +512,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_MultipleDifferentNonces() public {
         _install1();
-        validator.setGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
 
@@ -545,7 +543,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_EmitsEvent() public {
         _install1();
-        validator.setGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 5;
@@ -562,10 +560,128 @@ contract WebAuthnRecoveryTest is BaseTest {
         validator.recoverWithGuardian(address(this), block.chainid, cred, nonce, expiry, "");
     }
 
-    function test_SetGuardian_EmitsEvent() public {
+    function test_ProposeGuardian_EmitsEvent() public {
         vm.expectEmit(true, true, false, false);
         emit WebAuthnRecoveryBase.GuardianSet(address(this), address(mockGuardian));
 
-        validator.setGuardian(address(mockGuardian));
+        validator.proposeGuardian(address(mockGuardian));
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                          GUARDIAN TIMELOCK TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function test_SetGuardianTimelock() public {
+        uint48 duration = 1 days;
+        vm.expectEmit(true, false, false, true);
+        emit WebAuthnRecoveryBase.GuardianTimelockSet(address(this), duration);
+        validator.setGuardianTimelock(duration);
+
+        assertEq(validator.guardianTimelock(address(this)), duration);
+    }
+
+    function test_ProposeGuardian_PendingWhen_TimelockSet() public {
+        validator.setGuardianTimelock(1 days);
+
+        vm.expectEmit(true, true, false, true);
+        emit WebAuthnRecoveryBase.GuardianChangeProposed(
+            address(this), address(mockGuardian), uint48(block.timestamp + 1 days)
+        );
+        validator.proposeGuardian(address(mockGuardian));
+
+        // Guardian should NOT be set yet
+        assertEq(validator.guardian(address(this)), address(0));
+
+        // Pending info should be populated
+        (address pending, uint48 activatesAt) = validator.pendingGuardianInfo(address(this));
+        assertEq(pending, address(mockGuardian));
+        assertEq(activatesAt, uint48(block.timestamp + 1 days));
+    }
+
+    function test_ConfirmGuardian_RevertWhen_TimelockNotElapsed() public {
+        validator.setGuardianTimelock(1 days);
+        validator.proposeGuardian(address(mockGuardian));
+
+        // Try to confirm before timelock elapses
+        vm.expectRevert(WebAuthnRecoveryBase.GuardianTimelockNotElapsed.selector);
+        validator.confirmGuardian();
+    }
+
+    function test_ConfirmGuardian_Success_AfterTimelock() public {
+        validator.setGuardianTimelock(1 days);
+        validator.proposeGuardian(address(mockGuardian));
+
+        // Warp past the timelock
+        vm.warp(block.timestamp + 1 days);
+
+        vm.expectEmit(true, true, false, false);
+        emit WebAuthnRecoveryBase.GuardianSet(address(this), address(mockGuardian));
+        validator.confirmGuardian();
+
+        // Guardian should now be set
+        assertEq(validator.guardian(address(this)), address(mockGuardian));
+
+        // Pending info should be cleared
+        (address pending, uint48 activatesAt) = validator.pendingGuardianInfo(address(this));
+        assertEq(pending, address(0));
+        assertEq(activatesAt, 0);
+    }
+
+    function test_CancelGuardianChange() public {
+        validator.setGuardianTimelock(1 days);
+        validator.proposeGuardian(address(mockGuardian));
+
+        vm.expectEmit(true, false, false, false);
+        emit WebAuthnRecoveryBase.GuardianChangeCancelled(address(this));
+        validator.cancelGuardianChange();
+
+        // Pending should be cleared
+        (address pending, uint48 activatesAt) = validator.pendingGuardianInfo(address(this));
+        assertEq(pending, address(0));
+        assertEq(activatesAt, 0);
+
+        // Guardian should still be address(0)
+        assertEq(validator.guardian(address(this)), address(0));
+    }
+
+    function test_CancelGuardianChange_RevertWhen_NoPending() public {
+        vm.expectRevert(WebAuthnRecoveryBase.NoPendingGuardianChange.selector);
+        validator.cancelGuardianChange();
+    }
+
+    function test_ConfirmGuardian_RevertWhen_NoPending() public {
+        vm.expectRevert(WebAuthnRecoveryBase.NoPendingGuardianChange.selector);
+        validator.confirmGuardian();
+    }
+
+    function test_OnUninstall_ClearsPendingGuardian() public {
+        _install1();
+        validator.setGuardianTimelock(1 days);
+        validator.proposeGuardian(address(mockGuardian));
+
+        validator.onUninstall("");
+
+        // Pending should be cleared
+        (address pending, uint48 activatesAt) = validator.pendingGuardianInfo(address(this));
+        assertEq(pending, address(0));
+        assertEq(activatesAt, 0);
+    }
+
+    function test_OnInstall_SetsGuardianTimelock() public {
+        uint16[] memory keyIds = new uint16[](1);
+        keyIds[0] = 0;
+        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
+            new WebAuthnValidatorV2.WebAuthnCredential[](1);
+        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
+        bool[] memory requireUVs = new bool[](1);
+        requireUVs[0] = false;
+        validator.onInstall(abi.encode(keyIds, creds, requireUVs, address(mockGuardian), uint48(1 days)));
+
+        assertEq(validator.guardian(address(this)), address(mockGuardian));
+        assertEq(validator.guardianTimelock(address(this)), uint48(1 days));
+
+        // With timelock set via onInstall, proposeGuardian should queue (not immediate)
+        validator.proposeGuardian(address(rejectingGuardian));
+        assertEq(validator.guardian(address(this)), address(mockGuardian));
     }
 }

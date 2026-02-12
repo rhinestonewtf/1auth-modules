@@ -4,7 +4,7 @@ pragma solidity ^0.8.23;
 import { BaseTest } from "test/Base.t.sol";
 import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
 import { ERC7579HybridValidatorBase, ERC7579ValidatorBase } from "modulekit/Modules.sol";
-import { WebAuthn } from "webauthn-sol/src/WebAuthn.sol";
+import { WebAuthn } from "solady/utils/WebAuthn.sol";
 import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.sol";
 import { EIP1271_MAGIC_VALUE } from "test/utils/Constants.sol";
 import { Base64Url } from "FreshCryptoLib/utils/Base64Url.sol";
@@ -76,7 +76,6 @@ contract WebAuthnValidatorV2Test is BaseTest {
     function _buildRegularSignature(
         uint16 keyId,
         uint8 requireUV,
-        uint8 usePrecompile,
         uint256 r,
         uint256 s,
         bytes memory authenticatorData,
@@ -90,7 +89,6 @@ contract WebAuthnValidatorV2Test is BaseTest {
             uint8(0), // proofLength = 0
             keyId,
             requireUV,
-            usePrecompile,
             r,
             s,
             uint16(CHALLENGE_INDEX),
@@ -107,7 +105,6 @@ contract WebAuthnValidatorV2Test is BaseTest {
         bytes32[] memory proof,
         uint16 keyId,
         uint8 requireUV,
-        uint8 usePrecompile,
         uint256 r,
         uint256 s,
         bytes memory authenticatorData,
@@ -125,7 +122,6 @@ contract WebAuthnValidatorV2Test is BaseTest {
             result,
             keyId,
             requireUV,
-            usePrecompile,
             r,
             s,
             uint16(CHALLENGE_INDEX),
@@ -148,7 +144,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         });
         bool[] memory requireUVs = new bool[](1);
         requireUVs[0] = false;
-        return abi.encode(keyIds, creds, requireUVs, address(0));
+        return abi.encode(keyIds, creds, requireUVs, address(0), uint48(0));
     }
 
     function _installData2() internal view returns (bytes memory) {
@@ -168,7 +164,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         bool[] memory requireUVs = new bool[](2);
         requireUVs[0] = false;
         requireUVs[1] = true;
-        return abi.encode(keyIds, creds, requireUVs, address(0));
+        return abi.encode(keyIds, creds, requireUVs, address(0), uint48(0));
     }
 
     function _install1() internal {
@@ -211,7 +207,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
             new WebAuthnValidatorV2.WebAuthnCredential[](0);
         bool[] memory requireUVs = new bool[](0);
         vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
-        validator.onInstall(abi.encode(keyIds, creds, requireUVs, address(0)));
+        validator.onInstall(abi.encode(keyIds, creds, requireUVs, address(0), uint48(0)));
     }
 
     function test_OnInstall_RevertWhen_ZeroPubKey() public {
@@ -223,7 +219,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         bool[] memory requireUVs = new bool[](1);
         requireUVs[0] = false;
         vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
-        validator.onInstall(abi.encode(keyIds, creds, requireUVs, address(0)));
+        validator.onInstall(abi.encode(keyIds, creds, requireUVs, address(0), uint48(0)));
     }
 
     function test_OnInstall_RevertWhen_DuplicateKeyId() public {
@@ -238,10 +234,10 @@ contract WebAuthnValidatorV2Test is BaseTest {
         requireUVs[0] = false;
         requireUVs[1] = false;
         vm.expectRevert(abi.encodeWithSelector(WebAuthnValidatorV2.KeyIdAlreadyExists.selector, 5));
-        validator.onInstall(abi.encode(keyIds, creds, requireUVs, address(0)));
+        validator.onInstall(abi.encode(keyIds, creds, requireUVs, address(0), uint48(0)));
     }
 
-    function test_OnInstall_SameKeyId_DifferentRequireUV() public {
+    function test_OnInstall_RevertWhen_SameKeyId_DifferentRequireUV() public {
         uint16[] memory keyIds = new uint16[](2);
         keyIds[0] = 5;
         keyIds[1] = 5;
@@ -252,8 +248,8 @@ contract WebAuthnValidatorV2Test is BaseTest {
         bool[] memory requireUVs = new bool[](2);
         requireUVs[0] = false;
         requireUVs[1] = true;
-        validator.onInstall(abi.encode(keyIds, creds, requireUVs, address(0)));
-        assertEq(validator.credentialCount(address(this)), 2);
+        vm.expectRevert(abi.encodeWithSelector(WebAuthnValidatorV2.KeyIdAlreadyExists.selector, 5));
+        validator.onInstall(abi.encode(keyIds, creds, requireUVs, address(0), uint48(0)));
     }
 
     function test_OnUninstall() public {
@@ -300,16 +296,11 @@ contract WebAuthnValidatorV2Test is BaseTest {
         validator.addCredential(0, _pubKeyX1, _pubKeyY1, false); // same credKey
     }
 
-    function test_AddCredential_SameKeyId_DifferentRequireUV() public {
+    function test_AddCredential_RevertWhen_SameKeyId_DifferentRequireUV() public {
         _install1(); // keyId 0 with requireUV=false
-        // Same keyId but different requireUV = different credKey
+        // Same keyId but different requireUV should now revert — prevents requireUV bypass
+        vm.expectRevert(abi.encodeWithSelector(WebAuthnValidatorV2.KeyIdAlreadyExists.selector, 0));
         validator.addCredential(0, _pubKeyX1, _pubKeyY1, true);
-        assertEq(validator.credentialCount(address(this)), 2);
-
-        (uint256 px0,) = validator.getCredential(0, false, address(this));
-        assertEq(px0, _pubKeyX0);
-        (uint256 px1,) = validator.getCredential(0, true, address(this));
-        assertEq(px1, _pubKeyX1);
     }
 
     function test_RemoveCredential() public {
@@ -360,7 +351,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         // Regular signing: challenge = abi.encode(digest)
         string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
 
-        userOp.signature = _buildRegularSignature(0, 0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+        userOp.signature = _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
 
         uint256 validationData =
             ERC7579ValidatorBase.ValidationData.unwrap(validator.validateUserOp(userOp, TEST_DIGEST));
@@ -372,7 +363,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         userOp.sender = address(this);
 
         userOp.signature =
-            _buildRegularSignature(0, 0, 0, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST));
+            _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST));
 
         uint256 validationData =
             ERC7579ValidatorBase.ValidationData.unwrap(validator.validateUserOp(userOp, TEST_DIGEST));
@@ -386,7 +377,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         userOp.sender = address(this);
 
         userOp.signature =
-            _buildRegularSignature(1, 0, 0, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST));
+            _buildRegularSignature(1, 0, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST));
 
         uint256 validationData =
             ERC7579ValidatorBase.ValidationData.unwrap(validator.validateUserOp(userOp, TEST_DIGEST));
@@ -401,7 +392,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
 
         // Use requireUV=true in signature but credential was stored with requireUV=false
         userOp.signature =
-            _buildRegularSignature(0, 1, 0, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST));
+            _buildRegularSignature(0, 1, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST));
 
         uint256 validationData =
             ERC7579ValidatorBase.ValidationData.unwrap(validator.validateUserOp(userOp, TEST_DIGEST));
@@ -417,7 +408,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
 
         // Use keyId 10, requireUV=false which has pubKey0 (matches the test vectors)
-        userOp.signature = _buildRegularSignature(10, 0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+        userOp.signature = _buildRegularSignature(10, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
 
         uint256 validationData =
             ERC7579ValidatorBase.ValidationData.unwrap(validator.validateUserOp(userOp, TEST_DIGEST));
@@ -430,7 +421,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         _install1();
 
         string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
-        bytes memory sig = _buildRegularSignature(0, 0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+        bytes memory sig = _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
 
         bytes4 result = validator.isValidSignatureWithSender(address(this), TEST_DIGEST, sig);
         assertEq(result, EIP1271_MAGIC_VALUE, "Should return EIP1271_SUCCESS");
@@ -438,7 +429,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
 
     function test_IsValidSignatureWithSender_FailWhen_NotInitialized() public view {
         bytes memory sig =
-            _buildRegularSignature(0, 0, 0, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST));
+            _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST));
 
         bytes4 result = validator.isValidSignatureWithSender(address(this), TEST_DIGEST, sig);
         assertEq(result, bytes4(0xffffffff), "Should return EIP1271_FAILED");
@@ -471,7 +462,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = address(this);
         userOp.signature =
-            _buildMerkleSignature(merkleRoot, proof, 0, 0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+            _buildMerkleSignature(merkleRoot, proof, 0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
 
         uint256 validationData =
             ERC7579ValidatorBase.ValidationData.unwrap(validator.validateUserOp(userOp, TEST_DIGEST));
@@ -499,7 +490,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = address(this);
         userOp.signature =
-            _buildMerkleSignature(merkleRoot, proof, 0, 0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+            _buildMerkleSignature(merkleRoot, proof, 0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
 
         uint256 validationData =
             ERC7579ValidatorBase.ValidationData.unwrap(validator.validateUserOp(userOp, TEST_DIGEST));
@@ -516,8 +507,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
             uint8(0), // proofLength = 0
             _pubKeyX0,
             _pubKeyY0,
-            uint8(0), // requireUV
-            uint8(0) // usePrecompile
+            uint8(0) // requireUV
         );
 
         string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
@@ -540,7 +530,6 @@ contract WebAuthnValidatorV2Test is BaseTest {
             bytes32(0), // merkleRoot placeholder
             _pubKeyX0,
             _pubKeyY0,
-            uint8(0),
             uint8(0)
         );
 
@@ -551,15 +540,14 @@ contract WebAuthnValidatorV2Test is BaseTest {
     function test_ValidateSignatureWithData_MerkleProof_FailWhen_InvalidProof() public {
         bytes32 fakeRoot = bytes32(uint256(0x1234));
 
-        // proofLength=1 but wrong proof
+        // proofLength=1 but wrong proof — layout matches stateful: proof before credential
         bytes memory data = abi.encodePacked(
             uint8(1), // proofLength
             fakeRoot, // merkleRoot
+            bytes32(uint256(0xbad)), // wrong proof element
             _pubKeyX0,
             _pubKeyY0,
-            uint8(0), // requireUV
-            uint8(0), // usePrecompile
-            bytes32(uint256(0xbad)) // wrong proof element
+            uint8(0) // requireUV
         );
 
         string memory clientDataJSON = _buildClientDataJSON(fakeRoot);

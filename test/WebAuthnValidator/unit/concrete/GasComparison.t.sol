@@ -2,7 +2,7 @@
 pragma solidity ^0.8.23;
 
 import { BaseTest } from "test/Base.t.sol";
-import { WebAuthnValidator } from "src/WebAuthnValidator/WebAuthnValidator.sol";
+import { WebAuthnValidator } from "test/WebAuthnValidator/helpers/WebAuthnValidator.sol";
 import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
 import { ERC7579ValidatorBase } from "modulekit/Modules.sol";
 import { WebAuthn } from "webauthn-sol/src/WebAuthn.sol";
@@ -60,7 +60,7 @@ contract GasComparisonTest is BaseTest {
         });
         bool[] memory requireUVs = new bool[](1);
         requireUVs[0] = false;
-        v2.onInstall(abi.encode(keyIds, v2Creds, requireUVs, address(0)));
+        v2.onInstall(abi.encode(keyIds, v2Creds, requireUVs, address(0), uint48(0)));
     }
 
     /// @dev Compute calldata gas cost: 16 per non-zero byte, 4 per zero byte
@@ -126,12 +126,11 @@ contract GasComparisonTest is BaseTest {
 
         string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
 
-        // v2 packed sig: [proofLength=0][keyId][requireUV][usePrecompile][packed WebAuthnAuth]
+        // v2 packed sig: [proofLength=0][keyId][requireUV][packed WebAuthnAuth]
         userOp.signature = abi.encodePacked(
             uint8(0),   // proofLength = 0
             uint16(0),  // keyId
             uint8(0),   // requireUV
-            uint8(0),   // usePrecompile
             SIG_R,
             SIG_S,
             uint16(CHALLENGE_INDEX),
@@ -196,7 +195,6 @@ contract GasComparisonTest is BaseTest {
             uint8(0),
             uint16(0),
             uint8(0),
-            uint8(0),
             SIG_R,
             SIG_S,
             uint16(CHALLENGE_INDEX),
@@ -244,7 +242,7 @@ contract GasComparisonTest is BaseTest {
         pure
         returns (bytes memory)
     {
-        // [proofLength][merkleRoot][proof...][keyId][requireUV][usePrecompile][packedAuth]
+        // [proofLength][merkleRoot][proof...][keyId][requireUV][packedAuth]
         bytes memory sig = abi.encodePacked(
             uint8(proof.length),
             merkleRoot
@@ -256,7 +254,6 @@ contract GasComparisonTest is BaseTest {
             sig,
             uint16(0),  // keyId
             uint8(0),   // requireUV
-            uint8(0),   // usePrecompile
             SIG_R,
             SIG_S,
             uint16(CHALLENGE_INDEX),

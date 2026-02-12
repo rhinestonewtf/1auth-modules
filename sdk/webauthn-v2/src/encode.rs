@@ -18,13 +18,15 @@ type HexAddress = String;
 type HexU256 = String;
 
 /// Input for encoding onInstall data for WebAuthnValidatorV2.
-/// Matches: abi.encode(uint16[] keyIds, WebAuthnCredential[] creds, bool[] requireUVs, address guardian)
+/// Matches: abi.encode(uint16[] keyIds, WebAuthnCredential[] creds, bool[] requireUVs, address guardian, uint48 guardianTimelock)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstallInput {
     pub key_ids: Vec<u16>,
     pub credentials: Vec<CredentialInput>,
     pub require_uvs: Vec<bool>,
     pub guardian: Option<HexAddress>,
+    /// Guardian timelock duration in seconds. 0 or None means proposeGuardian takes effect immediately.
+    pub guardian_timelock: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,7 +70,9 @@ pub fn encode_install(input: &InstallInput) -> Result<(String, Vec<u8>), String>
         alloy_primitives::Address::ZERO
     };
 
-    let encoded = (key_ids, creds, require_uvs, guardian).abi_encode_params();
+    let guardian_timelock = U256::from(input.guardian_timelock.unwrap_or(0));
+
+    let encoded = (key_ids, creds, require_uvs, guardian, guardian_timelock).abi_encode_params();
 
     let hex_str = format!("0x{}", hex::encode(&encoded));
     Ok((hex_str, encoded))
@@ -95,6 +99,7 @@ mod tests {
             }],
             require_uvs: vec![false],
             guardian: None,
+            guardian_timelock: None,
         };
         let (hex_str, _raw) = encode_install(&input).unwrap();
         assert!(hex_str.starts_with("0x"));
@@ -121,6 +126,7 @@ mod tests {
             ],
             require_uvs: vec![false, true],
             guardian: Some("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string()),
+            guardian_timelock: Some(86400), // 1 day
         };
         let (hex_str, _raw) = encode_install(&input).unwrap();
         assert!(hex_str.starts_with("0x"));
@@ -136,6 +142,7 @@ mod tests {
             }],
             require_uvs: vec![false],
             guardian: None,
+            guardian_timelock: None,
         };
         assert!(encode_install(&input).is_err());
     }
