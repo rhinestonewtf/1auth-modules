@@ -240,8 +240,6 @@ contract WebAuthnRecoveryTest is BaseTest {
         bytes32 typehash = keccak256(
             "RecoverPasskey(address account,uint256 chainId,uint16 newKeyId,bytes32 newPubKeyX,bytes32 newPubKeyY,bool replace,uint256 nonce,uint48 expiry)"
         );
-        assertEq(typehash, validator.RECOVER_PASSKEY_TYPEHASH(), "Typehash should match");
-
         bytes32 structHash = keccak256(
             abi.encode(
                 typehash,

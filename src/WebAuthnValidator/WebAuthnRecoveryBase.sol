@@ -125,12 +125,6 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
                                CONSTANTS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice EIP-712 typehash for the RecoverPasskey struct
-    /// @dev Sourced from EIP712Lib (single source of truth). All credential fields (keyId,
-    ///      pubKeyX, pubKeyY) plus account, chainId, nonce, and expiry are included
-    ///      in the signed digest, preventing front-running attacks that substitute credential data.
-    bytes32 public constant RECOVER_PASSKEY_TYPEHASH = EIP712Lib.RECOVER_PASSKEY_TYPEHASH;
-
     /*//////////////////////////////////////////////////////////////
                                  STATE
     //////////////////////////////////////////////////////////////*/
