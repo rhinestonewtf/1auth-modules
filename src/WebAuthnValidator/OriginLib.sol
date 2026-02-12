@@ -9,6 +9,15 @@ pragma solidity ^0.8.28;
 ///
 ///      Designed for calldata input to avoid memory copies when scanning clientDataJSON
 ///      directly from packed signature data.
+///
+///      ASSUMPTIONS:
+///      - The input is well-formed WebAuthn authenticator output. This scanner does NOT
+///        handle JSON escape sequences (e.g. `\"` within origin values). Escaped quotes
+///        would cause premature termination of the value extraction, producing a truncated
+///        hash. This fails safely: the truncated hash won't match any stored UV exemption,
+///        so validation falls back to requireUV=true.
+///      - If duplicate `"origin"` keys appear, the last match wins. WebAuthn authenticators
+///        produce well-formed JSON with a single `origin` key.
 library OriginLib {
     /// @notice Extract origin and topOrigin hashes from clientDataJSON bytes
     /// @dev Scans for `origin":"` pattern (9 bytes: 0x6f726967696e223a22). When found,

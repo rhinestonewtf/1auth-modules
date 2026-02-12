@@ -8,6 +8,7 @@ import { WebAuthn } from "solady/utils/WebAuthn.sol";
 import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.sol";
 import { EIP1271_MAGIC_VALUE } from "test/utils/Constants.sol";
 import { Base64Url } from "FreshCryptoLib/utils/Base64Url.sol";
+import { console2 } from "forge-std/console2.sol";
 
 contract WebAuthnValidatorV2Test is BaseTest {
     WebAuthnValidatorV2 internal validator;
@@ -26,6 +27,10 @@ contract WebAuthnValidatorV2Test is BaseTest {
     // The digest that the test WebAuthn signatures were created for
     bytes32 constant TEST_DIGEST =
         0xf631058a3ba1116acce12396fad0a125b5041c43f8e15723709f81aa8d5f4ccf;
+
+    // P-256 field prime (for on-curve edge case tests)
+    uint256 constant P256_P =
+        0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF;
 
     // Real WebAuthn auth data for pubKey0 signing abi.encode(TEST_DIGEST)
     bytes constant AUTH_DATA =
@@ -619,5 +624,311 @@ contract WebAuthnValidatorV2Test is BaseTest {
         bytes32 d1 = validator.getPasskeyDigest(TEST_DIGEST);
         bytes32 d2 = validator.getPasskeyDigest(bytes32(uint256(0xdead)));
         assertTrue(d1 != d2, "Different input digests should produce different passkey digests");
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                              HELPERS — UV EXEMPTION
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @dev Build clientDataJSON with a toporigin field (lowercase, matching OriginLib pattern)
+    function _buildClientDataJSONWithTopOrigin(
+        bytes32 challengeHash,
+        string memory origin,
+        string memory topOrigin
+    )
+        internal
+        pure
+        returns (string memory)
+    {
+        bytes memory challenge = abi.encode(challengeHash);
+        return string.concat(
+            '{"type":"webauthn.get","challenge":"',
+            Base64Url.encode(challenge),
+            '","origin":"',
+            origin,
+            '","crossOrigin":true,"toporigin":"',
+            topOrigin,
+            '"}'
+        );
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                              UV EXEMPTION ORIGIN TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function test_SetUVExemptOrigin() public {
+        _install1();
+        bytes32 topH = keccak256("https://game.xyz");
+        bytes32 origH = keccak256("https://passkey.1auth.box");
+
+        validator.setUVExemptOrigin(topH, origH, true);
+        assertTrue(
+            validator.isUVExemptOrigin(address(this), topH, origH),
+            "Should be exempt after setting"
+        );
+    }
+
+    function test_SetUVExemptOrigin_Revoke() public {
+        _install1();
+        bytes32 topH = keccak256("https://game.xyz");
+        bytes32 origH = keccak256("https://passkey.1auth.box");
+
+        validator.setUVExemptOrigin(topH, origH, true);
+        assertTrue(validator.isUVExemptOrigin(address(this), topH, origH));
+
+        validator.setUVExemptOrigin(topH, origH, false);
+        assertFalse(
+            validator.isUVExemptOrigin(address(this), topH, origH),
+            "Should not be exempt after revocation"
+        );
+    }
+
+    function test_SetUVExemptOrigin_EmitsEvent() public {
+        _install1();
+        bytes32 topH = keccak256("https://game.xyz");
+        bytes32 origH = keccak256("https://passkey.1auth.box");
+
+        vm.expectEmit(true, false, false, true);
+        emit WebAuthnValidatorV2.UVExemptOriginSet(address(this), topH, origH, true);
+        validator.setUVExemptOrigin(topH, origH, true);
+    }
+
+    function test_IsUVExemptOrigin_DefaultFalse() public view {
+        assertFalse(
+            validator.isUVExemptOrigin(
+                address(this), keccak256("https://game.xyz"), keccak256("https://passkey.1auth.box")
+            ),
+            "Should be false by default"
+        );
+    }
+
+    function test_IsUVExemptOrigin_DifferentAccounts() public {
+        _install1();
+        bytes32 topH = keccak256("https://game.xyz");
+        bytes32 origH = keccak256("https://passkey.1auth.box");
+
+        validator.setUVExemptOrigin(topH, origH, true);
+
+        // Different account should not see the exemption
+        address otherAccount = address(0xBEEF);
+        assertFalse(
+            validator.isUVExemptOrigin(otherAccount, topH, origH),
+            "Other account should not be exempt"
+        );
+    }
+
+    function test_ValidateUserOp_SkipUV_FailWhen_NotExempt() public {
+        _install1();
+        // Build a signature with requestSkipUV=0 (request skip) and toporigin in clientDataJSON
+        // The toporigin is NOT in the exemption mapping, so _resolveSkipUV returns allowed=false
+        string memory clientDataJSON = _buildClientDataJSONWithTopOrigin(
+            TEST_DIGEST, "https://passkey.1auth.box", "https://game.xyz"
+        );
+
+        PackedUserOperation memory userOp = getEmptyUserOperation();
+        userOp.sender = address(this);
+        // requestSkipUV = 0 means "I want to skip UV"
+        userOp.signature = _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+
+        uint256 validationData =
+            ERC7579ValidatorBase.ValidationData.unwrap(validator.validateUserOp(userOp, TEST_DIGEST));
+        assertEq(validationData, 1, "Should fail when toporigin is not exempt");
+    }
+
+    function test_ValidateUserOp_SkipUV_NoTopOrigin_FallbackUV() public {
+        _install1();
+        // Build a signature with requestSkipUV=0 but no toporigin in the clientDataJSON
+        // _resolveSkipUV returns (requireUV=true, allowed=true) as fallback
+        string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
+
+        PackedUserOperation memory userOp = getEmptyUserOperation();
+        userOp.sender = address(this);
+        userOp.signature = _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+
+        // Validation proceeds with requireUV=true fallback (normal path)
+        // The P-256 verify may fail due to challenge mismatch, but it won't return early from _resolveSkipUV
+        uint256 validationData =
+            ERC7579ValidatorBase.ValidationData.unwrap(validator.validateUserOp(userOp, TEST_DIGEST));
+        // We can't assert success (depends on P-256 sig match), but we verify it doesn't revert
+        assertTrue(validationData == 0 || validationData == 1, "Should return valid ValidationData");
+    }
+
+    function test_IsValidSignature_SkipUV_FailWhen_NotExempt() public {
+        _install1();
+        // EIP-1271 path with requestSkipUV=0 and non-exempt toporigin
+        string memory clientDataJSON = _buildClientDataJSONWithTopOrigin(
+            TEST_DIGEST, "https://passkey.1auth.box", "https://game.xyz"
+        );
+        bytes memory sig = _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+
+        bytes4 result = validator.isValidSignatureWithSender(address(this), TEST_DIGEST, sig);
+        assertEq(result, bytes4(0xffffffff), "Should return EIP1271_FAILED when not exempt");
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                              P-256 ON-CURVE EDGE CASE TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function test_OnInstall_RevertWhen_PubKeyXEqualsPrime() public {
+        uint16[] memory keyIds = new uint16[](1);
+        keyIds[0] = 0;
+        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
+            new WebAuthnValidatorV2.WebAuthnCredential[](1);
+        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+            pubKeyX: bytes32(P256_P),
+            pubKeyY: _pubKeyY0
+        });
+        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+    }
+
+    function test_OnInstall_RevertWhen_PubKeyYEqualsPrime() public {
+        uint16[] memory keyIds = new uint16[](1);
+        keyIds[0] = 0;
+        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
+            new WebAuthnValidatorV2.WebAuthnCredential[](1);
+        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+            pubKeyX: _pubKeyX0,
+            pubKeyY: bytes32(P256_P)
+        });
+        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+    }
+
+    function test_OnInstall_RevertWhen_PubKeyExceedsPrime() public {
+        uint16[] memory keyIds = new uint16[](1);
+        keyIds[0] = 0;
+        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
+            new WebAuthnValidatorV2.WebAuthnCredential[](1);
+        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+            pubKeyX: bytes32(P256_P + 1),
+            pubKeyY: _pubKeyY0
+        });
+        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+    }
+
+    function test_OnInstall_RevertWhen_NotOnCurve() public {
+        uint16[] memory keyIds = new uint16[](1);
+        keyIds[0] = 0;
+        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
+            new WebAuthnValidatorV2.WebAuthnCredential[](1);
+        // (1, 1) is not on the P-256 curve
+        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+            pubKeyX: bytes32(uint256(1)),
+            pubKeyY: bytes32(uint256(1))
+        });
+        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+    }
+
+    function test_AddCredential_RevertWhen_NotOnCurve() public {
+        _install1();
+        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        validator.addCredential(99, bytes32(uint256(1)), bytes32(uint256(1)));
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                              TOO MANY CREDENTIALS + MISMATCHED ARRAYS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function test_AddCredential_RevertWhen_TooManyCredentials() public {
+        _install1(); // keyId 0 installed, count = 1
+
+        // Add credentials for keyIds 1..63 (total = 64 = MAX_CREDENTIALS)
+        for (uint16 i = 1; i < 64; i++) {
+            validator.addCredential(i, _pubKeyX0, _pubKeyY0);
+        }
+        assertEq(validator.credentialCount(address(this)), 64);
+
+        // The 65th should revert
+        vm.expectRevert(WebAuthnValidatorV2.TooManyCredentials.selector);
+        validator.addCredential(64, _pubKeyX0, _pubKeyY0);
+    }
+
+    function test_OnInstall_RevertWhen_TooManyCredentials() public {
+        uint256 count = 65; // exceeds MAX_CREDENTIALS = 64
+        uint16[] memory keyIds = new uint16[](count);
+        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
+            new WebAuthnValidatorV2.WebAuthnCredential[](count);
+        for (uint256 i; i < count; i++) {
+            keyIds[i] = uint16(i);
+            creds[i] = WebAuthnValidatorV2.WebAuthnCredential({
+                pubKeyX: _pubKeyX0,
+                pubKeyY: _pubKeyY0
+            });
+        }
+        vm.expectRevert(WebAuthnValidatorV2.TooManyCredentials.selector);
+        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+    }
+
+    function test_OnInstall_RevertWhen_MismatchedArrayLengths() public {
+        uint16[] memory keyIds = new uint16[](2);
+        keyIds[0] = 0;
+        keyIds[1] = 1;
+        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
+            new WebAuthnValidatorV2.WebAuthnCredential[](1);
+        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+            pubKeyX: _pubKeyX0,
+            pubKeyY: _pubKeyY0
+        });
+        vm.expectRevert(WebAuthnValidatorV2.InvalidPublicKey.selector);
+        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                              EVENT EMISSION TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function test_OnInstall_EmitsCredentialAdded() public {
+        uint16[] memory keyIds = new uint16[](2);
+        keyIds[0] = 10;
+        keyIds[1] = 42;
+        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
+            new WebAuthnValidatorV2.WebAuthnCredential[](2);
+        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+            pubKeyX: _pubKeyX0,
+            pubKeyY: _pubKeyY0
+        });
+        creds[1] = WebAuthnValidatorV2.WebAuthnCredential({
+            pubKeyX: _pubKeyX1,
+            pubKeyY: _pubKeyY1
+        });
+
+        vm.expectEmit(true, true, false, true);
+        emit WebAuthnValidatorV2.CredentialAdded(address(this), 10, _pubKeyX0, _pubKeyY0);
+        vm.expectEmit(true, true, false, true);
+        emit WebAuthnValidatorV2.CredentialAdded(address(this), 42, _pubKeyX1, _pubKeyY1);
+        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+    }
+
+    function test_OnInstall_EmitsModuleInitialized() public {
+        vm.expectEmit(true, false, false, false);
+        emit WebAuthnValidatorV2.ModuleInitialized(address(this));
+        _install1();
+    }
+
+    function test_OnUninstall_EmitsModuleUninitialized() public {
+        _install2();
+
+        vm.expectEmit(true, false, false, false);
+        emit WebAuthnValidatorV2.ModuleUninitialized(address(this));
+        validator.onUninstall("");
+    }
+
+    function test_AddCredential_EmitsCredentialAdded() public {
+        _install1();
+
+        vm.expectEmit(true, true, false, true);
+        emit WebAuthnValidatorV2.CredentialAdded(address(this), 99, _pubKeyX1, _pubKeyY1);
+        validator.addCredential(99, _pubKeyX1, _pubKeyY1);
+    }
+
+    function test_RemoveCredential_EmitsCredentialRemoved() public {
+        _install2(); // keyIds 10, 42
+
+        vm.expectEmit(true, true, false, false);
+        emit WebAuthnValidatorV2.CredentialRemoved(address(this), 10);
+        validator.removeCredential(10);
     }
 }

@@ -245,6 +245,9 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
     /// @notice Propose a new guardian for the caller's account
     /// @dev If guardianTimelock == 0, the change takes effect immediately.
     ///      Otherwise, the change is queued and must be confirmed after the timelock elapses.
+    ///      NOTE: Callable before module installation. This is safe because recovery functions
+    ///      (recoverWithPasskey/recoverWithGuardian) call _addCredentialRecovery which requires
+    ///      isInitialized, so a guardian configured pre-install cannot be used for recovery.
     function proposeGuardian(address _guardian) external {
         RecoveryConfig storage rc = _recoveryConfig[msg.sender];
         uint48 timelock = rc.guardianTimelock;
@@ -280,6 +283,8 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
     }
 
     /// @notice Set the guardian timelock duration for the caller's account
+    /// @dev Callable before module installation. Pre-install timelocks take effect on install
+    ///      since onInstall only sets guardianTimelock when the provided value is non-zero.
     /// @param duration Duration in seconds that guardian changes must wait before taking effect
     function setGuardianTimelock(uint48 duration) external {
         _recoveryConfig[msg.sender].guardianTimelock = duration;

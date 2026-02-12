@@ -135,14 +135,21 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
     /// @dev credKey = uint256(keyId)
     mapping(address account => PasskeyCredentials) internal _passkeyCredentials;
 
-    /// @notice Origin-based UV exemption mapping
+    /// @notice Per-account epoch counter for UV exemptions -- incremented on uninstall to
+    ///         invalidate all previously-configured exemptions without iterating the mapping.
+    mapping(address account => uint256 epoch) internal _uvExemptEpoch;
+
+    /// @notice Origin-based UV exemption mapping, keyed by (account, epoch, topOriginHash, originHash).
     /// @dev When a signer requests to skip UV (requestSkipUV=true in signature), the contract
     ///      parses topOrigin and origin from clientDataJSON and checks this mapping. If exempt,
     ///      the signature is verified with requireUV=false. If not exempt, validation fails.
     ///      If topOrigin is absent (direct access or old browser), falls back to requireUV=true.
-    ///      NOTE: Not cleared on uninstall (same rationale as recovery nonces).
-    mapping(address account => mapping(bytes32 topOriginHash => mapping(bytes32 originHash => bool uvExempt)))
-        internal _uvExemptOrigins;
+    ///      The epoch layer ensures all exemptions are invalidated on uninstall -- the epoch
+    ///      advances and old entries become unreachable without iterating or deleting storage.
+    mapping(
+        address account
+            => mapping(uint256 epoch => mapping(bytes32 topOriginHash => mapping(bytes32 originHash => bool uvExempt)))
+    ) internal _uvExemptOrigins;
 
     /*//////////////////////////////////////////////////////////////
                                  CONFIG
@@ -228,10 +235,15 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
             pc.enabledCredKeys.remove(credKeys[i]);
         }
 
-        // Clear guardian + pending guardian state but leave nonceUsed intact to prevent replay after reinstallation
+        // Clear guardian + pending guardian + timelock state but leave nonceUsed intact to prevent replay after reinstallation
         delete _recoveryConfig[account].guardian;
         delete _recoveryConfig[account].pendingGuardian;
         delete _recoveryConfig[account].guardianActivatesAt;
+        delete _recoveryConfig[account].guardianTimelock;
+
+        // Advance UV exemption epoch to invalidate all previously-configured exemptions.
+        // Old entries remain in storage but are unreachable at the new epoch.
+        unchecked { ++_uvExemptEpoch[account]; }
 
         emit ModuleUninitialized(account);
     }
@@ -331,7 +343,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
     /// @param originHash keccak256 of the origin string (e.g., keccak256("https://passkey.1auth.box"))
     /// @param exempt True to allow UV-less signing from this origin pair, false to revoke
     function setUVExemptOrigin(bytes32 topOriginHash, bytes32 originHash, bool exempt) external {
-        _uvExemptOrigins[msg.sender][topOriginHash][originHash] = exempt;
+        _uvExemptOrigins[msg.sender][_uvExemptEpoch[msg.sender]][topOriginHash][originHash] = exempt;
         emit UVExemptOriginSet(msg.sender, topOriginHash, originHash, exempt);
     }
 
@@ -349,7 +361,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         view
         returns (bool)
     {
-        return _uvExemptOrigins[account][topOriginHash][originHash];
+        return _uvExemptOrigins[account][_uvExemptEpoch[account]][topOriginHash][originHash];
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -648,13 +660,13 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
     ///        [0]                            proofLength (uint8)
     ///        if proofLength == 0 (regular signing, challenge = digest):
     ///          [1:3]                        keyId (uint16)
-    ///          [3]                          requestSkipUV (uint8, 0=skip, 1=require)
+    ///          [3]                          requestSkipUV (uint8, 0=require UV [safe default], non-zero=request skip)
     ///          [4:]                         packed WebAuthnAuth
     ///        if proofLength > 0 (merkle proof, challenge = merkleRoot):
     ///          [1:33]                       merkleRoot (bytes32)
     ///          [33:33+proofLength*32]       proof
     ///          [proofEnd:proofEnd+2]        keyId (uint16)
-    ///          [proofEnd+2]                 requestSkipUV (uint8, 0=skip, 1=require)
+    ///          [proofEnd+2]                 requestSkipUV (uint8, 0=require UV [safe default], non-zero=request skip)
     ///          [proofEnd+3:]                packed WebAuthnAuth
     /// @param account The smart account address (for credential lookup)
     /// @param digest The hash to validate (userOpHash or EIP-1271 hash)
@@ -703,7 +715,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
     {
         // Extract the signature header fields from the packed calldata
         uint16 keyId = uint16(bytes2(data[1:3]));
-        bool requestSkipUV = uint8(data[3]) == 0;
+        bool requestSkipUV = uint8(data[3]) != 0;
 
         // Look up the credential by keyId — loaded into memory for cheaper repeated access
         uint256 ck = _credKey(keyId);
@@ -780,7 +792,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
 
         // Extract credential header fields from after the proof
         uint16 keyId = uint16(bytes2(data[proofEnd:proofEnd + 2]));
-        bool requestSkipUV = uint8(data[proofEnd + 2]) == 0;
+        bool requestSkipUV = uint8(data[proofEnd + 2]) != 0;
 
         // Look up the credential by keyId — loaded into memory for cheaper repeated access
         uint256 ck = _credKey(keyId);
@@ -834,7 +846,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         if (topOriginHash == bytes32(0)) return (true, true);
 
         // topOrigin present but not exempt — game didn't set up allowlist
-        if (!_uvExemptOrigins[account][topOriginHash][originHash]) return (false, false);
+        if (!_uvExemptOrigins[account][_uvExemptEpoch[account]][topOriginHash][originHash]) return (false, false);
 
         // Exempt — verify with requireUV=false
         return (false, true);
