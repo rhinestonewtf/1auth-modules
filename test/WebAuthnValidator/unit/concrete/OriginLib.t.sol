@@ -82,19 +82,33 @@ contract OriginLibTest is BaseTest {
         assertEq(topOriginHash, keccak256("https://game.xyz"), "topOriginHash mismatch");
     }
 
-    /// @dev Standard WebAuthn uses camelCase "topOrigin" (uppercase O). The assembly pattern
-    ///      `origin":"` (all lowercase) does not match because `O` (0x4f) != `o` (0x6f).
-    ///      This means topOriginHash will always be bytes32(0) for standard WebAuthn JSON.
-    function test_ExtractOriginHashes_CamelCaseTopOrigin_NotDetected() public view {
-        // Standard WebAuthn camelCase "topOrigin" — NOT detected by the pattern scanner
+    /// @dev Standard WebAuthn Level 3 uses camelCase "topOrigin" (uppercase O). The assembly
+    ///      now matches both `origin":"` (0x6f726967696e223a22) and `Origin":"` (0x4f726967696e223a22),
+    ///      so camelCase "topOrigin" is correctly detected.
+    function test_ExtractOriginHashes_CamelCaseTopOrigin() public view {
+        // Standard WebAuthn camelCase "topOrigin" — detected by the pattern scanner
         bytes memory json = bytes(
             '{"origin":"https://passkey.1auth.box","crossOrigin":true,"topOrigin":"https://game.xyz"}'
         );
         (bytes32 originHash, bytes32 topOriginHash) = harness.extractOriginHashes(json);
 
         assertEq(originHash, keccak256("https://passkey.1auth.box"), "originHash mismatch");
-        // topOriginHash is zero because "topOrigin" (camelCase) is not matched
-        assertEq(topOriginHash, bytes32(0), "camelCase topOrigin should not be detected");
+        assertEq(topOriginHash, keccak256("https://game.xyz"), "camelCase topOrigin should be detected");
+    }
+
+    /// @dev When both lowercase "toporigin" and camelCase "topOrigin" appear in the same JSON,
+    ///      the last match wins (scanner overwrites topOriginHash on each match). This test
+    ///      verifies that both patterns are detected and the last one determines the final hash.
+    function test_ExtractOriginHashes_MixedCase_BothDetected() public view {
+        // lowercase "toporigin" first, then camelCase "topOrigin" — last match wins
+        bytes memory json = bytes(
+            '{"origin":"https://passkey.1auth.box","toporigin":"https://first.xyz","topOrigin":"https://second.xyz"}'
+        );
+        (bytes32 originHash, bytes32 topOriginHash) = harness.extractOriginHashes(json);
+
+        assertEq(originHash, keccak256("https://passkey.1auth.box"), "originHash mismatch");
+        // Last match wins: camelCase "topOrigin" value overwrites lowercase "toporigin"
+        assertEq(topOriginHash, keccak256("https://second.xyz"), "last topOrigin match should win");
     }
 
     /*//////////////////////////////////////////////////////////////////////////

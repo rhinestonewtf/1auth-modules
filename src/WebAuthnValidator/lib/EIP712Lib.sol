@@ -38,8 +38,9 @@ library EIP712Lib {
         keccak256("PasskeyMultichain(bytes32 root)");
 
     /// @dev EIP-712 typehash for recovery operations
+    /// @dev replace: false = add new credential, true = in-place rotation of existing credential
     bytes32 internal constant RECOVER_PASSKEY_TYPEHASH = keccak256(
-        "RecoverPasskey(address account,uint256 chainId,uint16 newKeyId,bytes32 newPubKeyX,bytes32 newPubKeyY,uint256 nonce,uint48 expiry)"
+        "RecoverPasskey(address account,uint256 chainId,uint16 newKeyId,bytes32 newPubKeyX,bytes32 newPubKeyY,bool replace,uint256 nonce,uint48 expiry)"
     );
 
     /*//////////////////////////////////////////////////////////////
@@ -63,6 +64,7 @@ library EIP712Lib {
         uint16 keyId,
         bytes32 pubKeyX,
         bytes32 pubKeyY,
+        bool replace,
         uint256 nonce,
         uint48 expiry
     )
@@ -77,6 +79,7 @@ library EIP712Lib {
             bytes32(uint256(keyId)),
             pubKeyX,
             pubKeyY,
+            bytes32(uint256(replace ? 1 : 0)),
             bytes32(uint256(nonce)),
             bytes32(uint256(expiry))
         );

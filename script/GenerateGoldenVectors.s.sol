@@ -82,7 +82,8 @@ contract GenerateGoldenVectors is Script {
         WebAuthnRecoveryBase.NewCredential memory cred = WebAuthnRecoveryBase.NewCredential({
             keyId: keyId,
             pubKeyX: bytes32(pubKeyX),
-            pubKeyY: bytes32(pubKeyY)
+            pubKeyY: bytes32(pubKeyY),
+            replace: false
         });
 
         bytes32 digest = v.getRecoverDigest(account, chainId, cred, nonce, expiry);

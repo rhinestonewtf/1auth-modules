@@ -4,6 +4,7 @@ pragma solidity ^0.8.23;
 import { BaseTest } from "test/Base.t.sol";
 import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
 import { IWebAuthnValidatorV2 } from "src/WebAuthnValidator/IWebAuthnValidatorV2.sol";
+import { UVExemptBase } from "src/WebAuthnValidator/UVExemptBase.sol";
 import { ERC7579HybridValidatorBase, ERC7579ValidatorBase } from "modulekit/Modules.sol";
 import { WebAuthn } from "solady/utils/WebAuthn.sol";
 import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.sol";
@@ -103,7 +104,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
     /// @dev Regular signing (proofLength=0): challenge = digest
     function _buildRegularSignature(
         uint16 keyId,
-        uint8 requireUV,
+        uint8 requestSkipUV,
         uint256 r,
         uint256 s,
         bytes memory authenticatorData,
@@ -116,7 +117,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         return abi.encodePacked(
             uint8(0), // proofLength = 0
             keyId,
-            requireUV,
+            requestSkipUV,
             r,
             s,
             uint16(CHALLENGE_INDEX),
@@ -132,7 +133,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         bytes32 merkleRoot,
         bytes32[] memory proof,
         uint16 keyId,
-        uint8 requireUV,
+        uint8 requestSkipUV,
         uint256 r,
         uint256 s,
         bytes memory authenticatorData,
@@ -149,7 +150,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         result = abi.encodePacked(
             result,
             keyId,
-            requireUV,
+            requestSkipUV,
             r,
             s,
             uint16(CHALLENGE_INDEX),
@@ -402,19 +403,19 @@ contract WebAuthnValidatorV2Test is BaseTest {
         assertEq(validationData, 1, "Should fail with wrong keyId");
     }
 
-    function test_ValidateUserOp_FailWhen_WrongRequireUV() public {
+    function test_ValidateUserOp_FailWhen_RequestSkipUV_NotExempt() public {
         _install1(); // keyId 0
 
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = address(this);
 
-        // Use requireUV=1 in signature — should fail verification since UV flag is enforced at validation time
+        // Use requestSkipUV=1 in signature — should fail because no UV exemption is configured
         userOp.signature =
             _buildRegularSignature(0, 1, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST));
 
         uint256 validationData =
             ERC7579ValidatorBase.ValidationData.unwrap(validator.validateUserOp(userOp, TEST_DIGEST));
-        assertEq(validationData, 1, "Should fail with requireUV mismatch");
+        assertEq(validationData, 1, "Should fail when requestSkipUV=1 but no exemption configured");
     }
 
     function test_ValidateUserOp_WithArbitraryKeyId() public {
@@ -524,7 +525,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
             uint8(0), // proofLength = 0
             _pubKeyX0,
             _pubKeyY0,
-            uint8(0) // requireUV
+            uint8(0) // requestSkipUV = 0 (don't skip UV)
         );
 
         // Compute the EIP-712 challenge
@@ -577,7 +578,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
             bytes32(uint256(0xbad)), // wrong proof element
             _pubKeyX0,
             _pubKeyY0,
-            uint8(0) // requireUV
+            uint8(0) // requestSkipUV = 0 (don't skip UV)
         );
 
         string memory clientDataJSON = _buildClientDataJSON(fakeRoot);
@@ -745,7 +746,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         bytes32 origH = keccak256("https://passkey.1auth.box");
 
         vm.expectEmit(true, false, false, true);
-        emit IWebAuthnValidatorV2.UVExemptOriginSet(address(this), topH, origH, true);
+        emit UVExemptBase.UVExemptOriginSet(address(this), topH, origH, true);
         validator.setUVExemptOrigin(topH, origH, true);
     }
 
@@ -775,7 +776,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
 
     function test_ValidateUserOp_SkipUV_FailWhen_NotExempt() public {
         _install1();
-        // Build a signature with requestSkipUV=0 (request skip) and toporigin in clientDataJSON
+        // Build a signature with requestSkipUV=1 (request skip UV) and toporigin in clientDataJSON
         // The toporigin is NOT in the exemption mapping, so _resolveSkipUV returns allowed=false
         string memory clientDataJSON = _buildClientDataJSONWithTopOrigin(
             TEST_DIGEST, "https://passkey.1auth.box", "https://game.xyz"
@@ -783,8 +784,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
 
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = address(this);
-        // requestSkipUV = 0 means "I want to skip UV"
-        userOp.signature = _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+        userOp.signature = _buildRegularSignature(0, 1, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
 
         uint256 validationData =
             ERC7579ValidatorBase.ValidationData.unwrap(validator.validateUserOp(userOp, TEST_DIGEST));
@@ -793,13 +793,13 @@ contract WebAuthnValidatorV2Test is BaseTest {
 
     function test_ValidateUserOp_SkipUV_NoTopOrigin_FallbackUV() public {
         _install1();
-        // Build a signature with requestSkipUV=0 but no toporigin in the clientDataJSON
+        // Build a signature with requestSkipUV=1 but no toporigin in the clientDataJSON
         // _resolveSkipUV returns (requireUV=true, allowed=true) as fallback
         string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
 
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = address(this);
-        userOp.signature = _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+        userOp.signature = _buildRegularSignature(0, 1, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
 
         // Validation proceeds with requireUV=true fallback (normal path)
         // The P-256 verify may fail due to challenge mismatch, but it won't return early from _resolveSkipUV
@@ -811,11 +811,11 @@ contract WebAuthnValidatorV2Test is BaseTest {
 
     function test_IsValidSignature_SkipUV_FailWhen_NotExempt() public {
         _install1();
-        // EIP-1271 path with requestSkipUV=0 and non-exempt toporigin
+        // EIP-1271 path with requestSkipUV=1 and non-exempt toporigin
         string memory clientDataJSON = _buildClientDataJSONWithTopOrigin(
             TEST_DIGEST, "https://passkey.1auth.box", "https://game.xyz"
         );
-        bytes memory sig = _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+        bytes memory sig = _buildRegularSignature(0, 1, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
 
         bytes4 result = validator.isValidSignatureWithSender(address(this), TEST_DIGEST, sig);
         assertEq(result, bytes4(0xffffffff), "Should return EIP1271_FAILED when not exempt");
@@ -882,6 +882,37 @@ contract WebAuthnValidatorV2Test is BaseTest {
         _install1();
         vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
         validator.addCredential(99, bytes32(uint256(1)), bytes32(uint256(1)));
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                              UV EXEMPTION EPOCH INVALIDATION
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function test_UVExemptOrigin_ClearedAfterUninstall() public {
+        _install1();
+        bytes32 topH = keccak256("https://game.xyz");
+        bytes32 origH = keccak256("https://passkey.1auth.box");
+
+        validator.setUVExemptOrigin(topH, origH, true);
+        assertTrue(validator.isUVExemptOrigin(address(this), topH, origH));
+
+        // Uninstall — actual storage cleanup via EnumerableSet iteration
+        validator.onUninstall("");
+
+        // Exemption should be gone (entries removed from set)
+        assertFalse(
+            validator.isUVExemptOrigin(address(this), topH, origH),
+            "UV exemption should be cleared after uninstall"
+        );
+
+        // Reinstall with same credential
+        _install1();
+
+        // Still gone after reinstall
+        assertFalse(
+            validator.isUVExemptOrigin(address(this), topH, origH),
+            "UV exemption should remain cleared after reinstall"
+        );
     }
 
     /*//////////////////////////////////////////////////////////////////////////

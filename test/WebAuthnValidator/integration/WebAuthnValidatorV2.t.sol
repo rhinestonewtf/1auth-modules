@@ -3,6 +3,7 @@ pragma solidity ^0.8.23;
 
 import { BaseIntegrationTest, ModuleKitHelpers } from "test/BaseIntegration.t.sol";
 import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
+import { UVExemptBase } from "src/WebAuthnValidator/UVExemptBase.sol";
 import { MODULE_TYPE_VALIDATOR } from "modulekit/accounts/common/interfaces/IERC7579Module.sol";
 import { UserOpData } from "modulekit/ModuleKit.sol";
 
@@ -152,7 +153,7 @@ contract WebAuthnValidatorV2IntegrationTest is BaseIntegrationTest {
             target: address(validator),
             value: 0,
             callData: abi.encodeWithSelector(
-                WebAuthnValidatorV2.setUVExemptOrigin.selector,
+                UVExemptBase.setUVExemptOrigin.selector,
                 topOriginHash,
                 originHash,
                 true

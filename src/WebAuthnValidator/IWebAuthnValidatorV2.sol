@@ -18,10 +18,6 @@ interface IWebAuthnValidatorV2 {
     event CredentialAdded(address indexed account, uint16 indexed keyId, bytes32 pubKeyX, bytes32 pubKeyY);
     /// @notice Emitted when a passkey credential is removed from an account
     event CredentialRemoved(address indexed account, uint16 indexed keyId);
-    /// @notice Emitted when a UV exemption is set or cleared for an (topOrigin, origin) pair
-    event UVExemptOriginSet(
-        address indexed account, bytes32 topOriginHash, bytes32 originHash, bool exempt
-    );
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -43,4 +39,6 @@ interface IWebAuthnValidatorV2 {
     error KeyIdAlreadyExists(uint16 keyId);
     /// @notice Thrown when the account already has MAX_CREDENTIALS registered
     error TooManyCredentials();
+
+    // NOTE: NotInitialized(address) is also used by this module but is inherited from IERC7579Module
 }

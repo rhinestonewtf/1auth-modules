@@ -57,6 +57,13 @@ library P256Lib {
     }
 
     /*//////////////////////////////////////////////////////////////
+                        WEBAUTHN AUTH CONSTANTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @dev Packed WebAuthnAuth header size: r (32) + s (32) + challengeIndex (2) + typeIndex (2) + adLen (2) = 70 bytes
+    uint256 internal constant WEBAUTHN_AUTH_HEADER_SIZE = 70;
+
+    /*//////////////////////////////////////////////////////////////
                           WEBAUTHN AUTH PARSING
     //////////////////////////////////////////////////////////////*/
 
@@ -91,8 +98,8 @@ library P256Lib {
         pure
         returns (WebAuthn.WebAuthnAuth memory auth, bool ok)
     {
-        // Minimum 70 bytes: r (32) + s (32) + challengeIndex (2) + typeIndex (2) + adLen (2)
-        if (raw.length < 70) return (auth, false);
+        // Minimum header: r (32) + s (32) + challengeIndex (2) + typeIndex (2) + adLen (2)
+        if (raw.length < WEBAUTHN_AUTH_HEADER_SIZE) return (auth, false);
 
         uint256 adLen;
         /// @solidity memory-safe-assembly
@@ -119,7 +126,7 @@ library P256Lib {
         }
 
         // Ensure calldata is long enough to contain the authenticatorData bytes
-        if (raw.length < 70 + adLen) return (auth, false);
+        if (raw.length < WEBAUTHN_AUTH_HEADER_SIZE + adLen) return (auth, false);
 
         /// @solidity memory-safe-assembly
         assembly {
@@ -128,12 +135,12 @@ library P256Lib {
 
             let off := raw.offset
             // clientDataJSON is everything after the fixed header and authenticatorData
-            let cdLen := sub(raw.length, add(70, adLen))
+            let cdLen := sub(raw.length, add(WEBAUTHN_AUTH_HEADER_SIZE, adLen))
             let fmp := mload(0x40) // current free memory pointer
 
             // Allocate authenticatorData: write length prefix then copy bytes from calldata
             mstore(fmp, adLen)
-            calldatacopy(add(fmp, 0x20), add(off, 70), adLen)
+            calldatacopy(add(fmp, 0x20), add(off, WEBAUTHN_AUTH_HEADER_SIZE), adLen)
             mstore(auth, fmp) // auth.authenticatorData = pointer to this bytes array
 
             // Advance past authenticatorData allocation with 32-byte alignment
@@ -143,7 +150,7 @@ library P256Lib {
 
             // Allocate clientDataJSON: write length prefix then copy remaining bytes
             mstore(cdPtr, cdLen)
-            calldatacopy(add(cdPtr, 0x20), add(off, add(70, adLen)), cdLen)
+            calldatacopy(add(cdPtr, 0x20), add(off, add(WEBAUTHN_AUTH_HEADER_SIZE, adLen)), cdLen)
             mstore(add(auth, 0x20), cdPtr) // auth.clientDataJSON = pointer to this bytes array
 
             // Update free memory pointer past both allocations with 32-byte alignment

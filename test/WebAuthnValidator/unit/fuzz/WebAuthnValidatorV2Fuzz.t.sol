@@ -5,9 +5,17 @@ import { BaseTest } from "test/Base.t.sol";
 import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
 import { IWebAuthnValidatorV2 } from "src/WebAuthnValidator/IWebAuthnValidatorV2.sol";
 import { OriginLib } from "src/WebAuthnValidator/lib/OriginLib.sol";
+import { P256Lib } from "src/WebAuthnValidator/lib/P256Lib.sol";
 import { ERC7579HybridValidatorBase, ERC7579ValidatorBase } from "modulekit/Modules.sol";
 import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.sol";
 import { EIP1271_MAGIC_VALUE } from "test/utils/Constants.sol";
+
+/// @dev Harness to expose P256Lib's internal parseWebAuthnAuth for fuzz testing
+contract P256LibFuzzHarness {
+    function parseWebAuthnAuth(bytes calldata raw) external pure returns (bool ok) {
+        (, ok) = P256Lib.parseWebAuthnAuth(raw);
+    }
+}
 
 /// @dev Harness to expose OriginLib's internal function for fuzz testing
 contract OriginLibFuzzHarness {
@@ -23,6 +31,7 @@ contract OriginLibFuzzHarness {
 contract WebAuthnValidatorV2FuzzTest is BaseTest {
     WebAuthnValidatorV2 internal validator;
     OriginLibFuzzHarness internal originHarness;
+    P256LibFuzzHarness internal p256Harness;
 
     bytes32 _pubKeyX0 =
         bytes32(uint256(66_296_829_923_831_658_891_499_717_579_803_548_012_279_830_557_731_564_719_736_971_029_660_387_468_805));
@@ -36,6 +45,7 @@ contract WebAuthnValidatorV2FuzzTest is BaseTest {
         BaseTest.setUp();
         validator = new WebAuthnValidatorV2();
         originHarness = new OriginLibFuzzHarness();
+        p256Harness = new P256LibFuzzHarness();
 
         // Install with one valid credential
         uint16[] memory keyIds = new uint16[](1);
@@ -153,5 +163,15 @@ contract WebAuthnValidatorV2FuzzTest is BaseTest {
         } catch {
             // Expected reverts for malformed data — this is fine
         }
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                          P256LIB PARSE FUZZ TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @dev parseWebAuthnAuth should never revert regardless of input
+    function testFuzz_ParseWebAuthnAuth_NeverReverts(bytes calldata raw) public view {
+        // Should never revert for any input — returns ok=false for malformed input
+        p256Harness.parseWebAuthnAuth(raw);
     }
 }
