@@ -4,15 +4,21 @@ import type {
   DigestResult,
   MerkleProofResult,
   StatefulSignatureConfig,
+  StatelessSignatureConfig,
+  RecoveryDigestInput,
 } from "./types.js";
 
 // WASM imports — bundler target auto-initializes on import.
 import {
   encodeInstall as wasmEncodeInstall,
   encodeStatefulSignature as wasmEncodeSignature,
+  encodeStatelessData as wasmEncodeStatelessData,
   buildMerkleTree as wasmBuildMerkleTree,
+  verifyMerkleProof as wasmVerifyMerkleProof,
   getPasskeyDigestTypedData as wasmPasskeyDigestTypedData,
   getPasskeyMultichainTypedData as wasmPasskeyMultichainTypedData,
+  getRecoveryDigest as wasmGetRecoveryDigest,
+  getRecoveryTypehash as wasmGetRecoveryTypehash,
 } from "./wasm/webauthn-v2/webauthn_v2.js";
 
 const MODULE_ADDRESS: Address = "0x0000000000578c4cb0e472a5462da43c495c3f33";
@@ -31,8 +37,11 @@ export function getPasskeyDigestTypedData(
 }
 
 /** Get the viem-compatible EIP-712 typed data for PasskeyMultichain (chain-agnostic). */
-export function getPasskeyMultichainTypedData(root: Hex): EIP712Input {
-  return JSON.parse(wasmPasskeyMultichainTypedData(root));
+export function getPasskeyMultichainTypedData(
+  root: Hex,
+  validatorAddress: Address = MODULE_ADDRESS
+): EIP712Input {
+  return JSON.parse(wasmPasskeyMultichainTypedData(root, validatorAddress));
 }
 
 /** Chain-specific EIP-712 challenge for single op signing. Matches _passkeyDigest(). */
@@ -45,8 +54,11 @@ export function passkeyDigest(
 }
 
 /** Chain-agnostic EIP-712 challenge for merkle batch signing. Matches _passkeyMultichain(). */
-export function passkeyMultichain(root: Hex): Hex {
-  return hashTypedData(getPasskeyMultichainTypedData(root));
+export function passkeyMultichain(
+  root: Hex,
+  validatorAddress: Address = MODULE_ADDRESS
+): Hex {
+  return hashTypedData(getPasskeyMultichainTypedData(root, validatorAddress));
 }
 
 // ── Install encoding (delegates to WASM) ──
@@ -93,7 +105,7 @@ export function getDigest(
   }
 
   const { root, proofs } = buildMerkleTree(digests);
-  const typedData = getPasskeyMultichainTypedData(root);
+  const typedData = getPasskeyMultichainTypedData(root, validatorAddress);
   const challenge = hashTypedData(typedData);
   const merkleProofs: MerkleProofResult[] = digests.map((d, i) => ({
     leaf: d,
@@ -121,7 +133,7 @@ export function getDigestFromHashes(
   }
 
   const { root, proofs } = buildMerkleTree(hashes);
-  const typedData = getPasskeyMultichainTypedData(root);
+  const typedData = getPasskeyMultichainTypedData(root, validatorAddress);
   const challenge = hashTypedData(typedData);
   const merkleProofs: MerkleProofResult[] = hashes.map((d, i) => ({
     leaf: d,
@@ -140,7 +152,6 @@ export function encodeSignature(
 ): Hex {
   const wasmConfig = JSON.stringify({
     key_id: config.keyId,
-    use_precompile: config.usePrecompile,
     merkle: config.merkle
       ? {
           root: hexToBytes32(config.merkle.root),
@@ -167,11 +178,56 @@ export function encodeSignatureFromDigest(
   return encodeSignature({ ...config, merkle }, webauthnAuth);
 }
 
+// ── Stateless data encoding (delegates to WASM) ──
+
+/** Encode stateless validation data for validateSignatureWithData (external credentials). */
+export function encodeStatelessData(config: StatelessSignatureConfig): Hex {
+  const wasmConfig = JSON.stringify({
+    pub_key_x: hexToBytes32(config.pubKeyX),
+    pub_key_y: hexToBytes32(config.pubKeyY),
+    merkle: config.merkle
+      ? {
+          root: hexToBytes32(config.merkle.root),
+          proof: config.merkle.proof.map(hexToBytes32),
+        }
+      : null,
+  });
+  return wasmEncodeStatelessData(wasmConfig) as Hex;
+}
+
+// ── Recovery (delegates to WASM) ──
+
+/** Compute the EIP-712 recovery digest for passkey/guardian recovery. */
+export function getRecoveryDigest(input: RecoveryDigestInput): Hex {
+  const wasmInput = JSON.stringify({
+    account: input.account,
+    chain_id: input.chainId,
+    new_key_id: input.newKeyId,
+    new_pub_key_x: input.newPubKeyX,
+    new_pub_key_y: input.newPubKeyY,
+    replace: input.replace ?? false,
+    nonce: input.nonce,
+    expiry: input.expiry,
+    verifying_contract: input.verifyingContract ?? MODULE_ADDRESS,
+  });
+  return wasmGetRecoveryDigest(wasmInput) as Hex;
+}
+
+/** Get the RECOVER_PASSKEY EIP-712 typehash. */
+export function getRecoveryTypehash(): Hex {
+  return wasmGetRecoveryTypehash() as Hex;
+}
+
 // ── Merkle tree (delegates to WASM — Solady sorted-pair keccak256) ──
 
 export function buildMerkleTree(leaves: Hex[]): { root: Hex; proofs: Hex[][] } {
   const result = JSON.parse(wasmBuildMerkleTree(JSON.stringify(leaves)));
   return { root: result.root as Hex, proofs: result.proofs as Hex[][] };
+}
+
+/** Verify a merkle proof against a root and leaf. */
+export function verifyMerkleProof(proof: Hex[], root: Hex, leaf: Hex): boolean {
+  return wasmVerifyMerkleProof(JSON.stringify(proof), root, leaf);
 }
 
 // ── Helpers ──
