@@ -30,7 +30,15 @@ export interface MerkleProofResult {
 
 export interface StatefulSignatureConfig {
   keyId: number;
-  usePrecompile: boolean;
+  merkle?: {
+    root: Hex;
+    proof: Hex[];
+  };
+}
+
+export interface StatelessSignatureConfig {
+  pubKeyX: Hex;
+  pubKeyY: Hex;
   merkle?: {
     root: Hex;
     proof: Hex[];
@@ -43,6 +51,8 @@ export interface RecoveryDigestInput {
   newKeyId: number;
   newPubKeyX: Hex;
   newPubKeyY: Hex;
+  replace?: boolean;
   nonce: Hex;
   expiry: number;
+  verifyingContract?: Address;
 }
