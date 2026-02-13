@@ -58,7 +58,6 @@ export function encodeInstall(input: InstallInput): { address: Address; initData
       pub_key_x: c.pubKeyX,
       pub_key_y: c.pubKeyY,
     })),
-    require_uvs: input.credentials.map((c) => c.requireUV),
     guardian: input.guardian ?? "0x0000000000000000000000000000000000000000",
   });
   const result = JSON.parse(wasmEncodeInstall(wasmInput));
@@ -141,7 +140,6 @@ export function encodeSignature(
 ): Hex {
   const wasmConfig = JSON.stringify({
     key_id: config.keyId,
-    require_uv: config.requireUV,
     use_precompile: config.usePrecompile,
     merkle: config.merkle
       ? {

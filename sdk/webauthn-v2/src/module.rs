@@ -93,13 +93,12 @@ mod tests {
         let m = WebAuthnValidatorV2;
         let config = StatefulSignatureConfig {
             key_id: 0,
-            require_uv: false,
             merkle: None,
         };
         let auth = vec![0xAA; 64];
         let sig = m.encode_signature(&config, &auth);
         assert_eq!(sig[0], 0); // proofLength = 0
-        assert_eq!(&sig[4..], &auth[..]);
+        assert_eq!(&sig[3..], &auth[..]);
     }
 
     #[test]
@@ -108,11 +107,10 @@ mod tests {
         let config = StatelessSignatureConfig {
             pub_key_x: [0x11; 32],
             pub_key_y: [0x22; 32],
-            require_uv: false,
             merkle: None,
         };
         let data = m.encode_stateless_data(&config);
         assert_eq!(data[0], 0);
-        assert_eq!(data.len(), 66);
+        assert_eq!(data.len(), 65);
     }
 }

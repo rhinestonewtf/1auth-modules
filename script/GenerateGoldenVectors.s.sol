@@ -29,6 +29,7 @@ contract GenerateGoldenVectors is Script {
         vm.serializeString(root, "passkey_multichain", _buildPasskeyMultichains(validator));
         vm.serializeString(root, "recovery_digest", _buildRecoveryDigest(validator));
         vm.serializeString(root, "merkle", _buildMerkle());
+        vm.serializeString(root, "signature_encoding", _buildSignatureEncoding());
 
         string memory finalJson = vm.serializeString(root, "_version", "1");
         vm.writeJson(finalJson, "test/WebAuthnValidator/fixtures/golden-vectors.json");
@@ -93,7 +94,6 @@ contract GenerateGoldenVectors is Script {
         vm.serializeUint(obj, "new_key_id", uint256(keyId));
         vm.serializeUint(obj, "new_pub_key_x", pubKeyX);
         vm.serializeUint(obj, "new_pub_key_y", pubKeyY);
-        vm.serializeBool(obj, "new_require_uv", false);
         vm.serializeUint(obj, "nonce", nonce);
         vm.serializeUint(obj, "expiry", uint256(expiry));
         return vm.serializeBytes32(obj, "output", digest);
@@ -133,5 +133,66 @@ contract GenerateGoldenVectors is Script {
 
     function _hashPair(bytes32 a, bytes32 b) internal pure returns (bytes32) {
         return a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
+    }
+
+    // ── Signature encoding vectors ──
+
+    function _buildSignatureEncoding() internal returns (string memory) {
+        string memory obj = "sig_encoding";
+
+        bytes memory auth64 = _repeatByte(0xAA, 64);
+        bytes memory auth32 = _repeatByte(0xDD, 32);
+        bytes32 merkleRoot = keccak256("merkle_root");
+        bytes32 proofElem = keccak256("proof_elem");
+        bytes32 pubKeyX = bytes32(uint256(0x580a9af0569ad3905b26a703201b358aa0904236642ebe79b22a19d00d373763));
+        bytes32 pubKeyY = bytes32(uint256(0x7d46f725a5427ae45a9569259bf67e1e16b187d7b3ad1ed70138c4f0409677d1));
+
+        // Stateful regular: [proofLength=0][keyId=0][auth64]
+        {
+            string memory k = "sf_regular";
+            bytes memory packed = abi.encodePacked(uint8(0), uint16(0), auth64);
+            vm.serializeUint(k, "key_id", 0);
+            vm.serializeBytes(k, "auth", auth64);
+            vm.serializeString(obj, "stateful_regular", vm.serializeBytes(k, "output", packed));
+        }
+
+        // Stateful merkle: [proofLength=1][root][proof0][keyId=1][auth32]
+        {
+            string memory k = "sf_merkle";
+            bytes memory packed = abi.encodePacked(uint8(1), merkleRoot, proofElem, uint16(1), auth32);
+            vm.serializeUint(k, "key_id", 1);
+            vm.serializeBytes32(k, "merkle_root", merkleRoot);
+            vm.serializeBytes32(k, "proof_0", proofElem);
+            vm.serializeBytes(k, "auth", auth32);
+            vm.serializeString(obj, "stateful_merkle", vm.serializeBytes(k, "output", packed));
+        }
+
+        // Stateless regular: [proofLength=0][pubKeyX][pubKeyY]
+        {
+            string memory k = "sl_regular";
+            bytes memory packed = abi.encodePacked(uint8(0), pubKeyX, pubKeyY);
+            vm.serializeBytes32(k, "pub_key_x", pubKeyX);
+            vm.serializeBytes32(k, "pub_key_y", pubKeyY);
+            vm.serializeString(obj, "stateless_regular", vm.serializeBytes(k, "output", packed));
+        }
+
+        // Stateless merkle: [proofLength=1][root][proof0][pubKeyX][pubKeyY]
+        {
+            string memory k = "sl_merkle";
+            bytes memory packed = abi.encodePacked(uint8(1), merkleRoot, proofElem, pubKeyX, pubKeyY);
+            vm.serializeBytes32(k, "merkle_root", merkleRoot);
+            vm.serializeBytes32(k, "proof_0", proofElem);
+            vm.serializeBytes32(k, "pub_key_x", pubKeyX);
+            vm.serializeBytes32(k, "pub_key_y", pubKeyY);
+            vm.serializeString(obj, "stateless_merkle", vm.serializeBytes(k, "output", packed));
+        }
+
+        return vm.serializeString(obj, "_done", "true");
+    }
+
+    function _repeatByte(uint8 b, uint256 len) internal pure returns (bytes memory) {
+        bytes memory out = new bytes(len);
+        for (uint256 i; i < len; i++) out[i] = bytes1(b);
+        return out;
     }
 }

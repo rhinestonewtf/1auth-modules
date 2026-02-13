@@ -55,9 +55,35 @@
     "new_key_id": 1,
     "new_pub_key_x": "39822268494420380862142963446600484332503039179828777786780392414513338988387",
     "new_pub_key_y": "56664491113712345833914954889732955401980098641432724692354286094797814265809",
-    "new_require_uv": false,
     "nonce": 42,
     "output": "0xcec9f0072307133a2a7b8ef322c248813930af892f97f3cc2b50c94828099d63"
+  },
+  "signature_encoding": {
+    "_done": "true",
+    "stateful_merkle": {
+      "auth": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "key_id": 1,
+      "merkle_root": "0x90502ba3fb3fe240900fc150c6c371f17d8d2657bc6868fe9939489e3ca19efa",
+      "output": "0x0190502ba3fb3fe240900fc150c6c371f17d8d2657bc6868fe9939489e3ca19efa64dff758d466c7fda56082e66adcc76cdcfedcfcf599f8ef93b93f509eac1bf30001dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "proof_0": "0x64dff758d466c7fda56082e66adcc76cdcfedcfcf599f8ef93b93f509eac1bf3"
+    },
+    "stateful_regular": {
+      "auth": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "key_id": 0,
+      "output": "0x000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "stateless_merkle": {
+      "merkle_root": "0x90502ba3fb3fe240900fc150c6c371f17d8d2657bc6868fe9939489e3ca19efa",
+      "output": "0x0190502ba3fb3fe240900fc150c6c371f17d8d2657bc6868fe9939489e3ca19efa64dff758d466c7fda56082e66adcc76cdcfedcfcf599f8ef93b93f509eac1bf3580a9af0569ad3905b26a703201b358aa0904236642ebe79b22a19d00d3737637d46f725a5427ae45a9569259bf67e1e16b187d7b3ad1ed70138c4f0409677d1",
+      "proof_0": "0x64dff758d466c7fda56082e66adcc76cdcfedcfcf599f8ef93b93f509eac1bf3",
+      "pub_key_x": "0x580a9af0569ad3905b26a703201b358aa0904236642ebe79b22a19d00d373763",
+      "pub_key_y": "0x7d46f725a5427ae45a9569259bf67e1e16b187d7b3ad1ed70138c4f0409677d1"
+    },
+    "stateless_regular": {
+      "output": "0x00580a9af0569ad3905b26a703201b358aa0904236642ebe79b22a19d00d3737637d46f725a5427ae45a9569259bf67e1e16b187d7b3ad1ed70138c4f0409677d1",
+      "pub_key_x": "0x580a9af0569ad3905b26a703201b358aa0904236642ebe79b22a19d00d373763",
+      "pub_key_y": "0x7d46f725a5427ae45a9569259bf67e1e16b187d7b3ad1ed70138c4f0409677d1"
+    }
   },
   "typehashes": {
     "passkey_digest": "0x5caa3237acf0e6317d6289a3b5569dc3aacf5a11ba3f1b520dd47ecd239faa11",

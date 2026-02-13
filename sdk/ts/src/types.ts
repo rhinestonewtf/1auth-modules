@@ -4,7 +4,6 @@ export interface CredentialInput {
   keyId: number;
   pubKeyX: Hex;
   pubKeyY: Hex;
-  requireUV: boolean;
 }
 
 export interface InstallInput {
@@ -31,7 +30,6 @@ export interface MerkleProofResult {
 
 export interface StatefulSignatureConfig {
   keyId: number;
-  requireUV: boolean;
   usePrecompile: boolean;
   merkle?: {
     root: Hex;
@@ -45,7 +43,6 @@ export interface RecoveryDigestInput {
   newKeyId: number;
   newPubKeyX: Hex;
   newPubKeyY: Hex;
-  newRequireUV: boolean;
   nonce: Hex;
   expiry: number;
 }
