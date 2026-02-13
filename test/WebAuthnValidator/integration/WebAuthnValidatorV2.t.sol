@@ -3,7 +3,6 @@ pragma solidity ^0.8.23;
 
 import { BaseIntegrationTest, ModuleKitHelpers } from "test/BaseIntegration.t.sol";
 import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
-import { UVExemptBase } from "src/WebAuthnValidator/UVExemptBase.sol";
 import { MODULE_TYPE_VALIDATOR } from "modulekit/accounts/common/interfaces/IERC7579Module.sol";
 import { UserOpData } from "modulekit/ModuleKit.sol";
 
@@ -142,28 +141,6 @@ contract WebAuthnValidatorV2IntegrationTest is BaseIntegrationTest {
         (bytes32 pubKeyX, bytes32 pubKeyY) = validator.getCredential(keyIdToRemove, address(instance.account));
         assertEq(pubKeyX, bytes32(0), "Removed credential pubKeyX should be zero");
         assertEq(pubKeyY, bytes32(0), "Removed credential pubKeyY should be zero");
-    }
-
-    function test_SetUVExemptOrigin_ViaAccount() public {
-        // It should set a UV exempt origin
-        bytes32 topOriginHash = keccak256("https://game.xyz");
-        bytes32 originHash = keccak256("https://passkey.1auth.box");
-
-        instance.getExecOps({
-            target: address(validator),
-            value: 0,
-            callData: abi.encodeWithSelector(
-                UVExemptBase.setUVExemptOrigin.selector,
-                topOriginHash,
-                originHash,
-                true
-            ),
-            txValidator: address(instance.defaultValidator)
-        }).execUserOps();
-
-        // Verify UV exempt origin was set
-        bool isExempt = validator.isUVExemptOrigin(address(instance.account), topOriginHash, originHash);
-        assertTrue(isExempt, "Origin should be UV exempt");
     }
 
     function test_ProposeGuardian_ViaAccount() public {

@@ -11,7 +11,6 @@ import {
     MODULE_TYPE_STATELESS_VALIDATOR as TYPE_STATELESS_VALIDATOR
 } from "modulekit/module-bases/utils/ERC7579Constants.sol";
 import { WebAuthnRecoveryBase } from "./WebAuthnRecoveryBase.sol";
-import { UVExemptBase } from "./UVExemptBase.sol";
 import { IWebAuthnValidatorV2 } from "./IWebAuthnValidatorV2.sol";
 import { EIP712Lib } from "./lib/EIP712Lib.sol";
 import { P256Lib } from "./lib/P256Lib.sol";
@@ -41,7 +40,7 @@ import { MAX_MERKLE_DEPTH, MAX_CREDENTIALS } from "./lib/Constants.sol";
  *      the EIP-712 domain separator. The module must be deployed at the same address on all
  *      target chains (e.g., via CREATE2) for cross-chain signatures to verify.
  */
-contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase, UVExemptBase, IWebAuthnValidatorV2 {
+contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase, IWebAuthnValidatorV2 {
     using EnumerableSetLib for EnumerableSetLib.Uint256Set;
     using EfficientHashLib for bytes32;
 
@@ -163,8 +162,6 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         delete _recoveryConfig[account].pendingGuardian;
         delete _recoveryConfig[account].guardianActivatesAt;
         delete _recoveryConfig[account].guardianTimelock;
-
-        _invalidateUVExemptions(account);
 
         emit ModuleUninitialized(account);
     }
@@ -339,13 +336,11 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
      *        if proofLength == 0 (regular signing, challenge = _passkeyDigest(hash)):
      *          [1:33]                         pubKeyX
      *          [33:65]                        pubKeyY
-     *          [65]                           requireUV (uint8)
      *        if proofLength > 0 (merkle proof, challenge = _passkeyMultichain(merkleRoot)):
      *          [1:33]                         merkleRoot (bytes32)
      *          [33:33+proofLength*32]         proof (bytes32[])
      *          [proofEnd:proofEnd+32]         pubKeyX
      *          [proofEnd+32:proofEnd+64]      pubKeyY
-     *          [proofEnd+64]                  requireUV (uint8)
      *      `signature` is packed WebAuthnAuth (see P256Lib.parseWebAuthnAuth for format).
      * @param hash The digest to validate (or a leaf in the merkle tree for batch signing)
      * @param signature Packed WebAuthnAuth struct (r, s, challengeIndex, typeIndex, authenticatorData, clientDataJSON)
@@ -367,15 +362,15 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
 
         // Regular path: proofLength == 0 means no merkle proof, challenge is chain-specific
         if (proofLength == 0) {
-            // Minimum data: 1 (proofLength) + 32 (pubKeyX) + 32 (pubKeyY) + 1 (requireUV) = 66
-            if (data.length < 66) revert InvalidSignatureData();
+            // Minimum data: 1 (proofLength) + 32 (pubKeyX) + 32 (pubKeyY) = 65
+            if (data.length < 65) revert InvalidSignatureData();
             (WebAuthn.WebAuthnAuth memory auth, bool ok) = P256Lib.parseWebAuthnAuth(signature);
             if (!ok) revert InvalidSignatureData();
 
             // Challenge is _passkeyDigest(hash): chain-specific EIP-712 typed data
             return WebAuthn.verify(
                 abi.encode(_passkeyDigest(hash)),
-                uint8(data[65]) != 0, // requireUV
+                true, // requireUV: always enforce user verification
                 auth,
                 bytes32(data[1:33]), // pubKeyX
                 bytes32(data[33:65]) // pubKeyY
@@ -387,8 +382,8 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
 
         // proofEnd marks where the proof bytes end and credential data begins
         uint256 proofEnd = 33 + (proofLength << 5); // 33 + proofLength * 32
-        // Minimum remaining data: pubKeyX (32) + pubKeyY (32) + requireUV (1) = 65
-        if (data.length < proofEnd + 65) revert InvalidSignatureData();
+        // Minimum remaining data: pubKeyX (32) + pubKeyY (32) = 64
+        if (data.length < proofEnd + 64) revert InvalidSignatureData();
 
         bytes32 merkleRoot = bytes32(data[1:33]);
 
@@ -417,7 +412,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
             // across multiple chains
             return WebAuthn.verify(
                 abi.encode(_passkeyMultichain(merkleRoot)),
-                uint8(data[proofEnd + 64]) != 0, // requireUV
+                true, // requireUV: always enforce user verification
                 auth,
                 bytes32(data[proofEnd:proofEnd + 32]), // pubKeyX
                 bytes32(data[proofEnd + 32:proofEnd + 64]) // pubKeyY
@@ -589,14 +584,12 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
      *        [0]                            proofLength (uint8)
      *        if proofLength == 0 (regular signing, challenge = digest):
      *          [1:3]                        keyId (uint16)
-     *          [3]                          requestSkipUV (uint8, 0=require UV [safe default], non-zero=request skip)
-     *          [4:]                         packed WebAuthnAuth
+     *          [3:]                         packed WebAuthnAuth
      *        if proofLength > 0 (merkle proof, challenge = merkleRoot):
      *          [1:33]                       merkleRoot (bytes32)
      *          [33:33+proofLength*32]       proof
      *          [proofEnd:proofEnd+2]        keyId (uint16)
-     *          [proofEnd+2]                 requestSkipUV (uint8, 0=require UV [safe default], non-zero=request skip)
-     *          [proofEnd+3:]                packed WebAuthnAuth
+     *          [proofEnd+2:]                packed WebAuthnAuth
      * @param account The smart account address (for credential lookup)
      * @param digest The hash to validate (userOpHash or EIP-1271 hash)
      * @param data The packed signature data
@@ -612,8 +605,8 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         override
         returns (bool)
     {
-        // Minimum 4 bytes: 1 (proofLength) + 2 (keyId) + 1 (requestSkipUV)
-        if (data.length < 4) return false;
+        // Minimum 3 bytes: 1 (proofLength) + 2 (keyId)
+        if (data.length < 3) return false;
 
         uint256 proofLength = uint8(data[0]);
 
@@ -627,10 +620,8 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
 
     /**
      * @notice Regular signing path (proofLength=0): challenge = chain-specific EIP-712 digest
-     * @dev Extracts keyId and requestSkipUV from the packed signature header, looks up the
-     *      credential by credKey, parses the WebAuthnAuth from the remaining calldata,
-     *      and delegates to WebAuthn.verify. When requestSkipUV is set, extracts origin
-     *      hashes directly from clientDataJSON in calldata and checks the UV exemption mapping.
+     * @dev Extracts keyId from the packed signature header, looks up the credential by credKey,
+     *      parses the WebAuthnAuth from the remaining calldata, and delegates to WebAuthn.verify.
      * @param account The smart account address for credential lookup
      * @param digest The hash to validate (wrapped in _passkeyDigest for chain-specific EIP-712)
      * @param data The full packed signature data (proofLength byte already consumed by caller)
@@ -645,9 +636,8 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         view
         returns (bool)
     {
-        // Extract the signature header fields from the packed calldata
+        // Extract the keyId from the packed calldata header
         uint16 keyId = uint16(bytes2(data[1:3]));
-        bool requestSkipUV = uint8(data[3]) != 0;
 
         // Look up the credential by keyId — loaded into memory for cheaper repeated access
         uint256 ck = uint256(keyId);
@@ -657,21 +647,13 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         // Valid P-256 keys cannot have x=0 since that fails the P256Lib.isOnCurve check at registration.
         if (cred.pubKeyX == bytes32(0)) return false;
 
-        // When UV skip is requested, extract origin hashes from calldata before memory parse
-        bool requireUV = true;
-        if (requestSkipUV) {
-            bool allowed;
-            (requireUV, allowed) = _resolveSkipUV(account, data[4:]);
-            if (!allowed) return false;
-        }
-
-        // Parse the packed WebAuthnAuth from the remaining calldata after the 4-byte header
-        (WebAuthn.WebAuthnAuth memory auth, bool ok) = P256Lib.parseWebAuthnAuth(data[4:]);
+        // Parse the packed WebAuthnAuth from the remaining calldata after the 3-byte header
+        (WebAuthn.WebAuthnAuth memory auth, bool ok) = P256Lib.parseWebAuthnAuth(data[3:]);
         if (!ok) return false;
 
         // Challenge is chain-specific: _passkeyDigest wraps digest in EIP-712 with chainId
         return WebAuthn.verify(
-            abi.encode(_passkeyDigest(digest)), requireUV, auth, cred.pubKeyX, cred.pubKeyY
+            abi.encode(_passkeyDigest(digest)), true, auth, cred.pubKeyX, cred.pubKeyY
         );
     }
 
@@ -705,8 +687,8 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         // Using left shift by 5 as an optimization for multiplication by 32
         uint256 proofEnd = 33 + (proofLength << 5);
 
-        // Minimum remaining data after proof: keyId (2) + requestSkipUV (1) = 3
-        if (data.length < proofEnd + 3) return false;
+        // Minimum remaining data after proof: keyId (2)
+        if (data.length < proofEnd + 2) return false;
 
         bytes32 merkleRoot = bytes32(data[1:33]);
 
@@ -724,30 +706,21 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
             if (!MerkleProofLib.verifyCalldata(proof, merkleRoot, digest)) return false;
         }
 
-        // Extract credential header fields from after the proof
+        // Extract keyId from after the proof
         uint16 keyId = uint16(bytes2(data[proofEnd:proofEnd + 2]));
-        bool requestSkipUV = uint8(data[proofEnd + 2]) != 0;
 
         // Look up the credential by keyId — loaded into memory for cheaper repeated access
         uint256 ck = uint256(keyId);
         WebAuthnCredential memory cred = _passkeyCredentials[account].credentials[ck];
         if (cred.pubKeyX == bytes32(0)) return false;
 
-        // When UV skip is requested, extract origin hashes from calldata before memory parse
-        bool requireUV = true;
-        if (requestSkipUV) {
-            bool allowed;
-            (requireUV, allowed) = _resolveSkipUV(account, data[proofEnd + 3:]);
-            if (!allowed) return false;
-        }
-
-        // Parse WebAuthnAuth from remaining calldata after the 3-byte credential header
-        (WebAuthn.WebAuthnAuth memory auth, bool ok) = P256Lib.parseWebAuthnAuth(data[proofEnd + 3:]);
+        // Parse WebAuthnAuth from remaining calldata after the 2-byte keyId
+        (WebAuthn.WebAuthnAuth memory auth, bool ok) = P256Lib.parseWebAuthnAuth(data[proofEnd + 2:]);
         if (!ok) return false;
 
         // Challenge is chain-agnostic: _passkeyMultichain wraps merkleRoot in EIP-712 without chainId
         return WebAuthn.verify(
-            abi.encode(_passkeyMultichain(merkleRoot)), requireUV, auth, cred.pubKeyX, cred.pubKeyY
+            abi.encode(_passkeyMultichain(merkleRoot)), true, auth, cred.pubKeyX, cred.pubKeyY
         );
     }
 

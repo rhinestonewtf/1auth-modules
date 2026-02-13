@@ -167,11 +167,10 @@ contract GasComparisonTest is BaseTest {
             sNorm = P256_N - sNorm;
         }
 
-        // v2 packed sig: [proofLength=0][keyId][requestSkipUV][packed WebAuthnAuth]
+        // v2 packed sig: [proofLength=0][keyId][packed WebAuthnAuth]
         userOp.signature = abi.encodePacked(
             uint8(0),   // proofLength = 0
             uint16(0),  // keyId
-            uint8(0),   // requestSkipUV = 0 (don't skip UV)
             r,
             bytes32(sNorm),
             uint16(CHALLENGE_INDEX),
@@ -245,7 +244,6 @@ contract GasComparisonTest is BaseTest {
         bytes memory sig = abi.encodePacked(
             uint8(0),
             uint16(0),
-            uint8(0),
             r,
             bytes32(sNorm),
             uint16(CHALLENGE_INDEX),
@@ -293,7 +291,7 @@ contract GasComparisonTest is BaseTest {
         pure
         returns (bytes memory)
     {
-        // [proofLength][merkleRoot][proof...][keyId][requestSkipUV][packedAuth]
+        // [proofLength][merkleRoot][proof...][keyId][packedAuth]
         bytes memory sig = abi.encodePacked(
             uint8(proof.length),
             merkleRoot
@@ -304,7 +302,6 @@ contract GasComparisonTest is BaseTest {
         sig = abi.encodePacked(
             sig,
             uint16(0),  // keyId
-            uint8(0),   // requestSkipUV = 0 (don't skip UV)
             SIG_R,
             SIG_S,
             uint16(CHALLENGE_INDEX),

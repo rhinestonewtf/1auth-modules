@@ -83,7 +83,6 @@ contract WebAuthnRecoveryTest is BaseTest {
 
     function _buildRegularSignature(
         uint16 keyId,
-        uint8 requestSkipUV,
         uint256 r,
         uint256 s,
         bytes memory authenticatorData,
@@ -96,7 +95,6 @@ contract WebAuthnRecoveryTest is BaseTest {
         return abi.encodePacked(
             uint8(0), // proofLength = 0
             keyId,
-            requestSkipUV,
             r,
             s,
             uint16(CHALLENGE_INDEX),
@@ -309,7 +307,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
         // Sign over wrong digest (TEST_DIGEST, not recovery digest)
         string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
-        bytes memory sig = _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+        bytes memory sig = _buildRegularSignature(0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
 
         vm.expectRevert(WebAuthnRecoveryBase.InvalidRecoverySignature.selector);
         validator.recoverWithPasskey(address(this), block.chainid, cred, 0, expiry, sig);
@@ -323,7 +321,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         vm.expectRevert(WebAuthnRecoveryBase.InvalidRecoverySignature.selector);
         validator.recoverWithPasskey(
             address(this), block.chainid, cred, 0, expiry,
-            _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST))
+            _buildRegularSignature(0, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST))
         );
     }
 
@@ -333,7 +331,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         uint48 expiry = uint48(block.timestamp + 1000);
         WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, bytes32(0), bytes32(0));
         string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
-        bytes memory sig = _buildRegularSignature(0, 0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
+        bytes memory sig = _buildRegularSignature(0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
         vm.expectRevert(WebAuthnRecoveryBase.InvalidRecoverySignature.selector);
         validator.recoverWithPasskey(address(this), block.chainid, cred, 0, expiry, sig);
     }

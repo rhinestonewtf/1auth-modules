@@ -4,7 +4,6 @@ pragma solidity ^0.8.23;
 import { BaseTest } from "test/Base.t.sol";
 import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
 import { IWebAuthnValidatorV2 } from "src/WebAuthnValidator/IWebAuthnValidatorV2.sol";
-import { OriginLib } from "src/WebAuthnValidator/lib/OriginLib.sol";
 import { P256Lib } from "src/WebAuthnValidator/lib/P256Lib.sol";
 import { ERC7579HybridValidatorBase, ERC7579ValidatorBase } from "modulekit/Modules.sol";
 import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.sol";
@@ -17,20 +16,8 @@ contract P256LibFuzzHarness {
     }
 }
 
-/// @dev Harness to expose OriginLib's internal function for fuzz testing
-contract OriginLibFuzzHarness {
-    function extractOriginHashes(bytes calldata clientDataJSON)
-        external
-        pure
-        returns (bytes32, bytes32)
-    {
-        return OriginLib.extractOriginHashes(clientDataJSON);
-    }
-}
-
 contract WebAuthnValidatorV2FuzzTest is BaseTest {
     WebAuthnValidatorV2 internal validator;
-    OriginLibFuzzHarness internal originHarness;
     P256LibFuzzHarness internal p256Harness;
 
     bytes32 _pubKeyX0 =
@@ -44,7 +31,6 @@ contract WebAuthnValidatorV2FuzzTest is BaseTest {
     function setUp() public override {
         BaseTest.setUp();
         validator = new WebAuthnValidatorV2();
-        originHarness = new OriginLibFuzzHarness();
         p256Harness = new P256LibFuzzHarness();
 
         // Install with one valid credential
@@ -57,35 +43,6 @@ contract WebAuthnValidatorV2FuzzTest is BaseTest {
             pubKeyY: _pubKeyY0
         });
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
-    }
-
-    /*//////////////////////////////////////////////////////////////////////////
-                              ORIGINLIB FUZZ TESTS
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @dev OriginLib should never revert regardless of input
-    function testFuzz_OriginLib_NeverReverts(bytes calldata data) public view {
-        // Should not revert for any input
-        originHarness.extractOriginHashes(data);
-    }
-
-    /// @dev If we build a valid JSON with an origin, the extracted hash should match
-    function testFuzz_OriginLib_OriginHashConsistent(string calldata origin) public view {
-        // Skip inputs containing quote (would break JSON) or empty (tricky edge case)
-        vm.assume(bytes(origin).length > 0 && bytes(origin).length < 500);
-        // Skip if origin contains a double quote which would break our JSON construction
-        for (uint256 i; i < bytes(origin).length; i++) {
-            vm.assume(bytes(origin)[i] != 0x22); // no double quotes
-        }
-
-        bytes memory json = abi.encodePacked('{"origin":"', origin, '"}');
-        (bytes32 originHash,) = originHarness.extractOriginHashes(json);
-
-        assertEq(
-            originHash,
-            keccak256(bytes(origin)),
-            "Extracted origin hash should match keccak256 of the origin string"
-        );
     }
 
     /*//////////////////////////////////////////////////////////////////////////
