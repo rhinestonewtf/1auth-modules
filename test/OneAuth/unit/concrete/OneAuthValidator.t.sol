@@ -2,18 +2,18 @@
 pragma solidity ^0.8.23;
 
 import { BaseTest } from "test/Base.t.sol";
-import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
-import { IWebAuthnValidatorV2 } from "src/WebAuthnValidator/IWebAuthnValidatorV2.sol";
+import { OneAuthValidator } from "src/OneAuth/OneAuthValidator.sol";
+import { IOneAuthValidator } from "src/OneAuth/IOneAuthValidator.sol";
 import { ERC7579HybridValidatorBase, ERC7579ValidatorBase } from "modulekit/Modules.sol";
 import { WebAuthn } from "solady/utils/WebAuthn.sol";
 import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.sol";
 import { EIP1271_MAGIC_VALUE } from "test/utils/Constants.sol";
 import { Base64Url } from "FreshCryptoLib/utils/Base64Url.sol";
 import { console2 } from "forge-std/console2.sol";
-import { P256VerifierWrapper } from "test/WebAuthnValidator/helpers/P256VerifierWrapper.sol";
+import { P256VerifierWrapper } from "test/OneAuth/helpers/P256VerifierWrapper.sol";
 
-contract WebAuthnValidatorV2Test is BaseTest {
-    WebAuthnValidatorV2 internal validator;
+contract OneAuthValidatorTest is BaseTest {
+    OneAuthValidator internal validator;
 
     uint256 constant P256_PRIV_KEY = 0x03d99692017473e2d631945a812607b23269d85721e0f370b8d3e7d29a874004;
 
@@ -62,7 +62,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         P256VerifierWrapper verifier_ = new P256VerifierWrapper();
         vm.etch(SOLADY_P256_VERIFIER, address(verifier_).code);
 
-        validator = new WebAuthnValidatorV2();
+        validator = new OneAuthValidator();
 
         // Derive P-256 public keys from private key
         (uint256 x0, uint256 y0) = vm.publicKeyP256(P256_PRIV_KEY);
@@ -185,9 +185,9 @@ contract WebAuthnValidatorV2Test is BaseTest {
     function _installData1() internal view returns (bytes memory) {
         uint16[] memory keyIds = new uint16[](1);
         keyIds[0] = 0;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](1);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](1);
+        creds[0] = OneAuthValidator.WebAuthnCredential({
             pubKeyX: _pubKeyX0,
             pubKeyY: _pubKeyY0
         });
@@ -198,13 +198,13 @@ contract WebAuthnValidatorV2Test is BaseTest {
         uint16[] memory keyIds = new uint16[](2);
         keyIds[0] = 10;
         keyIds[1] = 42;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](2);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](2);
+        creds[0] = OneAuthValidator.WebAuthnCredential({
             pubKeyX: _pubKeyX0,
             pubKeyY: _pubKeyY0
         });
-        creds[1] = WebAuthnValidatorV2.WebAuthnCredential({
+        creds[1] = OneAuthValidator.WebAuthnCredential({
             pubKeyX: _pubKeyX1,
             pubKeyY: _pubKeyY1
         });
@@ -247,19 +247,19 @@ contract WebAuthnValidatorV2Test is BaseTest {
 
     function test_OnInstall_RevertWhen_EmptyCredentials() public {
         uint16[] memory keyIds = new uint16[](0);
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](0);
-        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](0);
+        vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
     function test_OnInstall_RevertWhen_ZeroPubKey() public {
         uint16[] memory keyIds = new uint16[](1);
         keyIds[0] = 0;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](1);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: bytes32(0), pubKeyY: bytes32(0) });
-        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](1);
+        creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: bytes32(0), pubKeyY: bytes32(0) });
+        vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
@@ -267,11 +267,11 @@ contract WebAuthnValidatorV2Test is BaseTest {
         uint16[] memory keyIds = new uint16[](2);
         keyIds[0] = 5;
         keyIds[1] = 5;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](2);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
-        creds[1] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: _pubKeyX1, pubKeyY: _pubKeyY1 });
-        vm.expectRevert(abi.encodeWithSelector(IWebAuthnValidatorV2.KeyIdAlreadyExists.selector, 5));
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](2);
+        creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
+        creds[1] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX1, pubKeyY: _pubKeyY1 });
+        vm.expectRevert(abi.encodeWithSelector(IOneAuthValidator.KeyIdAlreadyExists.selector, 5));
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
@@ -309,13 +309,13 @@ contract WebAuthnValidatorV2Test is BaseTest {
 
     function test_AddCredential_RevertWhen_ZeroPubKey() public {
         _install1();
-        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
         validator.addCredential(1, bytes32(0), bytes32(0));
     }
 
     function test_AddCredential_RevertWhen_DuplicateKeyId() public {
         _install1(); // keyId 0
-        vm.expectRevert(abi.encodeWithSelector(IWebAuthnValidatorV2.KeyIdAlreadyExists.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IOneAuthValidator.KeyIdAlreadyExists.selector, 0));
         validator.addCredential(0, _pubKeyX1, _pubKeyY1);
     }
 
@@ -338,13 +338,13 @@ contract WebAuthnValidatorV2Test is BaseTest {
 
     function test_RemoveCredential_RevertWhen_LastCredential() public {
         _install1();
-        vm.expectRevert(IWebAuthnValidatorV2.CannotRemoveLastCredential.selector);
+        vm.expectRevert(IOneAuthValidator.CannotRemoveLastCredential.selector);
         validator.removeCredential(0);
     }
 
     function test_RemoveCredential_RevertWhen_NotFound() public {
         _install2();
-        vm.expectRevert(abi.encodeWithSelector(IWebAuthnValidatorV2.CredentialNotFound.selector, 999));
+        vm.expectRevert(abi.encodeWithSelector(IOneAuthValidator.CredentialNotFound.selector, 999));
         validator.removeCredential(999);
     }
 
@@ -530,7 +530,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
     }
 
     function test_ValidateSignatureWithData_FailWhen_DataTooShort() public {
-        vm.expectRevert(IWebAuthnValidatorV2.InvalidSignatureData.selector);
+        vm.expectRevert(IOneAuthValidator.InvalidSignatureData.selector);
         validator.validateSignatureWithData(TEST_DIGEST, "", "");
     }
 
@@ -542,7 +542,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
             _pubKeyY0
         );
 
-        vm.expectRevert(IWebAuthnValidatorV2.ProofTooLong.selector);
+        vm.expectRevert(IOneAuthValidator.ProofTooLong.selector);
         validator.validateSignatureWithData(TEST_DIGEST, "", data);
     }
 
@@ -563,7 +563,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
             SIG_R, SIG_S, uint16(CHALLENGE_INDEX), uint16(TYPE_INDEX), AUTH_DATA, clientDataJSON
         );
 
-        vm.expectRevert(IWebAuthnValidatorV2.InvalidMerkleProof.selector);
+        vm.expectRevert(IOneAuthValidator.InvalidMerkleProof.selector);
         validator.validateSignatureWithData(TEST_DIGEST, sig, data);
     }
 
@@ -572,11 +572,11 @@ contract WebAuthnValidatorV2Test is BaseTest {
     //////////////////////////////////////////////////////////////////////////*/
 
     function test_Name() public view {
-        assertEq(validator.name(), "WebAuthnValidatorV2");
+        assertEq(validator.name(), "OneAuthValidator");
     }
 
     function test_Version() public view {
-        assertEq(validator.version(), "2.0.0");
+        assertEq(validator.version(), "1.0.0");
     }
 
     function test_IsModuleType_Validator() public view {
@@ -604,8 +604,8 @@ contract WebAuthnValidatorV2Test is BaseTest {
         bytes32 domainSep = keccak256(
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256(bytes("WebAuthnValidator")),
-                keccak256(bytes("2.0.0")),
+                keccak256(bytes("OneAuthValidator")),
+                keccak256(bytes("1.0.0")),
                 block.chainid,
                 address(validator)
             )
@@ -634,8 +634,8 @@ contract WebAuthnValidatorV2Test is BaseTest {
         bytes32 domainSep = keccak256(
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,address verifyingContract)"),
-                keccak256(bytes("WebAuthnValidator")),
-                keccak256(bytes("2.0.0")),
+                keccak256(bytes("OneAuthValidator")),
+                keccak256(bytes("1.0.0")),
                 address(validator)
             )
         );
@@ -667,59 +667,59 @@ contract WebAuthnValidatorV2Test is BaseTest {
     function test_OnInstall_RevertWhen_PubKeyXEqualsPrime() public {
         uint16[] memory keyIds = new uint16[](1);
         keyIds[0] = 0;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](1);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](1);
+        creds[0] = OneAuthValidator.WebAuthnCredential({
             pubKeyX: bytes32(P256_P),
             pubKeyY: _pubKeyY0
         });
-        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
     function test_OnInstall_RevertWhen_PubKeyYEqualsPrime() public {
         uint16[] memory keyIds = new uint16[](1);
         keyIds[0] = 0;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](1);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](1);
+        creds[0] = OneAuthValidator.WebAuthnCredential({
             pubKeyX: _pubKeyX0,
             pubKeyY: bytes32(P256_P)
         });
-        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
     function test_OnInstall_RevertWhen_PubKeyExceedsPrime() public {
         uint16[] memory keyIds = new uint16[](1);
         keyIds[0] = 0;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](1);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](1);
+        creds[0] = OneAuthValidator.WebAuthnCredential({
             pubKeyX: bytes32(P256_P + 1),
             pubKeyY: _pubKeyY0
         });
-        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
     function test_OnInstall_RevertWhen_NotOnCurve() public {
         uint16[] memory keyIds = new uint16[](1);
         keyIds[0] = 0;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](1);
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](1);
         // (1, 1) is not on the P-256 curve
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+        creds[0] = OneAuthValidator.WebAuthnCredential({
             pubKeyX: bytes32(uint256(1)),
             pubKeyY: bytes32(uint256(1))
         });
-        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
     function test_AddCredential_RevertWhen_NotOnCurve() public {
         _install1();
-        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
         validator.addCredential(99, bytes32(uint256(1)), bytes32(uint256(1)));
     }
 
@@ -737,23 +737,23 @@ contract WebAuthnValidatorV2Test is BaseTest {
         assertEq(validator.credentialCount(address(this)), 64);
 
         // The 65th should revert
-        vm.expectRevert(IWebAuthnValidatorV2.TooManyCredentials.selector);
+        vm.expectRevert(IOneAuthValidator.TooManyCredentials.selector);
         validator.addCredential(64, _pubKeyX0, _pubKeyY0);
     }
 
     function test_OnInstall_RevertWhen_TooManyCredentials() public {
         uint256 count = 65; // exceeds MAX_CREDENTIALS = 64
         uint16[] memory keyIds = new uint16[](count);
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](count);
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](count);
         for (uint256 i; i < count; i++) {
             keyIds[i] = uint16(i);
-            creds[i] = WebAuthnValidatorV2.WebAuthnCredential({
+            creds[i] = OneAuthValidator.WebAuthnCredential({
                 pubKeyX: _pubKeyX0,
                 pubKeyY: _pubKeyY0
             });
         }
-        vm.expectRevert(IWebAuthnValidatorV2.TooManyCredentials.selector);
+        vm.expectRevert(IOneAuthValidator.TooManyCredentials.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
@@ -761,13 +761,13 @@ contract WebAuthnValidatorV2Test is BaseTest {
         uint16[] memory keyIds = new uint16[](2);
         keyIds[0] = 0;
         keyIds[1] = 1;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](1);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](1);
+        creds[0] = OneAuthValidator.WebAuthnCredential({
             pubKeyX: _pubKeyX0,
             pubKeyY: _pubKeyY0
         });
-        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
@@ -779,27 +779,27 @@ contract WebAuthnValidatorV2Test is BaseTest {
         uint16[] memory keyIds = new uint16[](2);
         keyIds[0] = 10;
         keyIds[1] = 42;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](2);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](2);
+        creds[0] = OneAuthValidator.WebAuthnCredential({
             pubKeyX: _pubKeyX0,
             pubKeyY: _pubKeyY0
         });
-        creds[1] = WebAuthnValidatorV2.WebAuthnCredential({
+        creds[1] = OneAuthValidator.WebAuthnCredential({
             pubKeyX: _pubKeyX1,
             pubKeyY: _pubKeyY1
         });
 
         vm.expectEmit(true, true, false, true);
-        emit IWebAuthnValidatorV2.CredentialAdded(address(this), 10, _pubKeyX0, _pubKeyY0);
+        emit IOneAuthValidator.CredentialAdded(address(this), 10, _pubKeyX0, _pubKeyY0);
         vm.expectEmit(true, true, false, true);
-        emit IWebAuthnValidatorV2.CredentialAdded(address(this), 42, _pubKeyX1, _pubKeyY1);
+        emit IOneAuthValidator.CredentialAdded(address(this), 42, _pubKeyX1, _pubKeyY1);
         validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
     }
 
     function test_OnInstall_EmitsModuleInitialized() public {
         vm.expectEmit(true, false, false, false);
-        emit IWebAuthnValidatorV2.ModuleInitialized(address(this));
+        emit IOneAuthValidator.ModuleInitialized(address(this));
         _install1();
     }
 
@@ -807,7 +807,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         _install2();
 
         vm.expectEmit(true, false, false, false);
-        emit IWebAuthnValidatorV2.ModuleUninitialized(address(this));
+        emit IOneAuthValidator.ModuleUninitialized(address(this));
         validator.onUninstall("");
     }
 
@@ -815,7 +815,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         _install1();
 
         vm.expectEmit(true, true, false, true);
-        emit IWebAuthnValidatorV2.CredentialAdded(address(this), 99, _pubKeyX1, _pubKeyY1);
+        emit IOneAuthValidator.CredentialAdded(address(this), 99, _pubKeyX1, _pubKeyY1);
         validator.addCredential(99, _pubKeyX1, _pubKeyY1);
     }
 
@@ -823,7 +823,7 @@ contract WebAuthnValidatorV2Test is BaseTest {
         _install2(); // keyIds 10, 42
 
         vm.expectEmit(true, true, false, false);
-        emit IWebAuthnValidatorV2.CredentialRemoved(address(this), 10);
+        emit IOneAuthValidator.CredentialRemoved(address(this), 10);
         validator.removeCredential(10);
     }
 }

@@ -1,5 +1,5 @@
 [package]
-name = "webauthn-v2"
+name = "oneauth"
 version = "0.1.0"
 edition = "2021"
 

@@ -7,7 +7,7 @@ import { WebAuthn } from "solady/utils/WebAuthn.sol";
  * @title P256Lib
  * @notice P-256 (secp256r1) curve validation and WebAuthn auth parsing utilities
  * @dev Provides on-curve validation for P-256 public keys and packed WebAuthnAuth
- *      parsing used by the WebAuthn validator modules.
+ *      parsing used by the OneAuth validator modules.
  */
 library P256Lib {
     /*//////////////////////////////////////////////////////////////

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import { Script, console2 } from "forge-std/Script.sol";
-import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
+import { OneAuthValidator } from "src/OneAuth/OneAuthValidator.sol";
 import { Base64Url } from "FreshCryptoLib/utils/Base64Url.sol";
 
 /// @notice Compute the EIP-712 wrapped challenge values for regenerating test vectors
@@ -15,9 +15,9 @@ contract ComputeTestChallenge is Script {
         hex"49960de5880e8c687434170f6476605b8fe4aeb9a28632c7995cf3ba831d97630100000001";
 
     function run() public {
-        WebAuthnValidatorV2 validator = new WebAuthnValidatorV2();
+        OneAuthValidator validator = new OneAuthValidator();
 
-        console2.log("=== WebAuthnValidatorV2 Test Challenge Computation ===");
+        console2.log("=== OneAuthValidator Test Challenge Computation ===");
         console2.log("");
         console2.log("Validator address:", address(validator));
         console2.log("Chain ID:", block.chainid);

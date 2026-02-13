@@ -7,12 +7,12 @@ cd "$SCRIPT_DIR"
 echo "==> Building Rust workspace (native check)..."
 cargo check --workspace
 
-echo "==> Building webauthn-v2 WASM with wasm-pack..."
+echo "==> Building oneauth WASM with wasm-pack..."
 if command -v wasm-pack &> /dev/null; then
-  cd webauthn-v2
-  wasm-pack build --target bundler --out-dir ../ts/src/wasm/webauthn-v2
+  cd oneauth
+  wasm-pack build --target bundler --out-dir ../ts/src/wasm/oneauth
   cd ..
-  echo "    WASM built to ts/src/wasm/webauthn-v2/"
+  echo "    WASM built to ts/src/wasm/oneauth/"
 else
   echo "    [SKIP] wasm-pack not installed. Install with: cargo install wasm-pack"
 fi

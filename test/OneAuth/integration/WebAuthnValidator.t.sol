@@ -2,7 +2,7 @@
 pragma solidity ^0.8.23;
 
 import { BaseIntegrationTest, ModuleKitHelpers } from "test/BaseIntegration.t.sol";
-import { WebAuthnValidator } from "test/WebAuthnValidator/helpers/WebAuthnValidator.sol";
+import { WebAuthnValidator } from "test/OneAuth/helpers/WebAuthnValidator.sol";
 import { WebAuthn } from "webauthn-sol/src/WebAuthn.sol";
 import { EIP1271_MAGIC_VALUE } from "test/utils/Constants.sol";
 import { MODULE_TYPE_VALIDATOR } from "modulekit/accounts/common/interfaces/IERC7579Module.sol";

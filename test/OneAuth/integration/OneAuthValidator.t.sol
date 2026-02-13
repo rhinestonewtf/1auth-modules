@@ -2,18 +2,18 @@
 pragma solidity ^0.8.23;
 
 import { BaseIntegrationTest, ModuleKitHelpers } from "test/BaseIntegration.t.sol";
-import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
+import { OneAuthValidator } from "src/OneAuth/OneAuthValidator.sol";
 import { MODULE_TYPE_VALIDATOR } from "modulekit/accounts/common/interfaces/IERC7579Module.sol";
 import { UserOpData } from "modulekit/ModuleKit.sol";
 
-contract WebAuthnValidatorV2IntegrationTest is BaseIntegrationTest {
+contract OneAuthValidatorIntegrationTest is BaseIntegrationTest {
     using ModuleKitHelpers for *;
 
     /*//////////////////////////////////////////////////////////////////////////
                                     CONTRACTS
     //////////////////////////////////////////////////////////////////////////*/
 
-    WebAuthnValidatorV2 internal validator;
+    OneAuthValidator internal validator;
 
     /*//////////////////////////////////////////////////////////////////////////
                                     VARIABLES
@@ -31,19 +31,19 @@ contract WebAuthnValidatorV2IntegrationTest is BaseIntegrationTest {
 
     function setUp() public virtual override {
         super.setUp();
-        validator = new WebAuthnValidatorV2();
+        validator = new OneAuthValidator();
 
         // Setup two credentials with keyIds 0 and 1, no guardian, no timelock
         uint16[] memory keyIds = new uint16[](2);
         keyIds[0] = 0;
         keyIds[1] = 1;
 
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds = new WebAuthnValidatorV2.WebAuthnCredential[](2);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+        OneAuthValidator.WebAuthnCredential[] memory creds = new OneAuthValidator.WebAuthnCredential[](2);
+        creds[0] = OneAuthValidator.WebAuthnCredential({
             pubKeyX: _pubKeyX0,
             pubKeyY: _pubKeyY0
         });
-        creds[1] = WebAuthnValidatorV2.WebAuthnCredential({
+        creds[1] = OneAuthValidator.WebAuthnCredential({
             pubKeyX: _pubKeyX1,
             pubKeyY: _pubKeyY1
         });
@@ -103,7 +103,7 @@ contract WebAuthnValidatorV2IntegrationTest is BaseIntegrationTest {
             target: address(validator),
             value: 0,
             callData: abi.encodeWithSelector(
-                WebAuthnValidatorV2.addCredential.selector,
+                OneAuthValidator.addCredential.selector,
                 newKeyId,
                 _pubKeyX0,
                 _pubKeyY0
@@ -128,7 +128,7 @@ contract WebAuthnValidatorV2IntegrationTest is BaseIntegrationTest {
             target: address(validator),
             value: 0,
             callData: abi.encodeWithSelector(
-                WebAuthnValidatorV2.removeCredential.selector,
+                OneAuthValidator.removeCredential.selector,
                 keyIdToRemove
             ),
             txValidator: address(instance.defaultValidator)

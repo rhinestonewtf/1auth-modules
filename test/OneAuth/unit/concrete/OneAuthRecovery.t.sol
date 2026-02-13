@@ -2,9 +2,9 @@
 pragma solidity ^0.8.23;
 
 import { BaseTest } from "test/Base.t.sol";
-import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
-import { IWebAuthnValidatorV2 } from "src/WebAuthnValidator/IWebAuthnValidatorV2.sol";
-import { WebAuthnRecoveryBase } from "src/WebAuthnValidator/WebAuthnRecoveryBase.sol";
+import { OneAuthValidator } from "src/OneAuth/OneAuthValidator.sol";
+import { IOneAuthValidator } from "src/OneAuth/IOneAuthValidator.sol";
+import { OneAuthRecoveryBase } from "src/OneAuth/OneAuthRecoveryBase.sol";
 import { ERC7579HybridValidatorBase, ERC7579ValidatorBase } from "modulekit/Modules.sol";
 import { WebAuthn } from "solady/utils/WebAuthn.sol";
 import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.sol";
@@ -31,8 +31,8 @@ contract RejectingGuardian {
     }
 }
 
-contract WebAuthnRecoveryTest is BaseTest {
-    WebAuthnValidatorV2 internal validator;
+contract OneAuthRecoveryTest is BaseTest {
+    OneAuthValidator internal validator;
     MockGuardian internal mockGuardian;
     RejectingGuardian internal rejectingGuardian;
 
@@ -63,7 +63,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
     function setUp() public virtual override {
         BaseTest.setUp();
-        validator = new WebAuthnValidatorV2();
+        validator = new OneAuthValidator();
         mockGuardian = new MockGuardian();
         rejectingGuardian = new RejectingGuardian();
     }
@@ -108,9 +108,9 @@ contract WebAuthnRecoveryTest is BaseTest {
     function _installData1() internal view returns (bytes memory) {
         uint16[] memory keyIds = new uint16[](1);
         keyIds[0] = 0;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](1);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](1);
+        creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
         return abi.encode(keyIds, creds, address(0), uint48(0));
     }
 
@@ -125,9 +125,9 @@ contract WebAuthnRecoveryTest is BaseTest {
     )
         internal
         pure
-        returns (WebAuthnRecoveryBase.NewCredential memory)
+        returns (OneAuthRecoveryBase.NewCredential memory)
     {
-        return WebAuthnRecoveryBase.NewCredential({
+        return OneAuthRecoveryBase.NewCredential({
             keyId: keyId,
             pubKeyX: pubKeyX,
             pubKeyY: pubKeyY,
@@ -142,9 +142,9 @@ contract WebAuthnRecoveryTest is BaseTest {
     )
         internal
         pure
-        returns (WebAuthnRecoveryBase.NewCredential memory)
+        returns (OneAuthRecoveryBase.NewCredential memory)
     {
-        return WebAuthnRecoveryBase.NewCredential({
+        return OneAuthRecoveryBase.NewCredential({
             keyId: keyId,
             pubKeyX: pubKeyX,
             pubKeyY: pubKeyY,
@@ -170,9 +170,9 @@ contract WebAuthnRecoveryTest is BaseTest {
     function test_OnInstall_SetsGuardian() public {
         uint16[] memory keyIds = new uint16[](1);
         keyIds[0] = 0;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](1);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](1);
+        creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
         validator.onInstall(abi.encode(keyIds, creds, address(mockGuardian), uint48(0)));
 
         assertEq(validator.guardian(address(this)), address(mockGuardian));
@@ -192,43 +192,43 @@ contract WebAuthnRecoveryTest is BaseTest {
     //////////////////////////////////////////////////////////////////////////*/
 
     function test_GetRecoverDigest_Deterministic() public view {
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
         bytes32 d1 = validator.getRecoverDigest(address(this), block.chainid, cred, 0, 1000);
         bytes32 d2 = validator.getRecoverDigest(address(this), block.chainid, cred, 0, 1000);
         assertEq(d1, d2, "Same inputs should produce same digest");
     }
 
     function test_GetRecoverDigest_DifferentNonce() public view {
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
         bytes32 d1 = validator.getRecoverDigest(address(this), block.chainid, cred, 0, 1000);
         bytes32 d2 = validator.getRecoverDigest(address(this), block.chainid, cred, 1, 1000);
         assertTrue(d1 != d2, "Different nonce should produce different digest");
     }
 
     function test_GetRecoverDigest_DifferentExpiry() public view {
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
         bytes32 d1 = validator.getRecoverDigest(address(this), block.chainid, cred, 0, 1000);
         bytes32 d2 = validator.getRecoverDigest(address(this), block.chainid, cred, 0, 2000);
         assertTrue(d1 != d2, "Different expiry should produce different digest");
     }
 
     function test_GetRecoverDigest_DifferentKeyId() public view {
-        WebAuthnRecoveryBase.NewCredential memory cred1 = _newCred(1, _pubKeyX1, _pubKeyY1);
-        WebAuthnRecoveryBase.NewCredential memory cred2 = _newCred(2, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred1 = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred2 = _newCred(2, _pubKeyX1, _pubKeyY1);
         bytes32 d1 = validator.getRecoverDigest(address(this), block.chainid, cred1, 0, 1000);
         bytes32 d2 = validator.getRecoverDigest(address(this), block.chainid, cred2, 0, 1000);
         assertTrue(d1 != d2, "Different keyId should produce different digest");
     }
 
     function test_GetRecoverDigest_DifferentAccount() public view {
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
         bytes32 d1 = validator.getRecoverDigest(address(this), block.chainid, cred, 0, 1000);
         bytes32 d2 = validator.getRecoverDigest(address(1), block.chainid, cred, 0, 1000);
         assertTrue(d1 != d2, "Different account should produce different digest");
     }
 
     function test_GetRecoverDigest_DifferentChainId() public view {
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
         bytes32 d1 = validator.getRecoverDigest(address(this), 1, cred, 0, 1000);
         bytes32 d2 = validator.getRecoverDigest(address(this), 2, cred, 0, 1000);
         assertTrue(d1 != d2, "Different chainId should produce different digest");
@@ -256,8 +256,8 @@ contract WebAuthnRecoveryTest is BaseTest {
         bytes32 domainSep = keccak256(
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,address verifyingContract)"),
-                keccak256(bytes("WebAuthnValidator")),
-                keccak256(bytes("2.0.0")),
+                keccak256(bytes("OneAuthValidator")),
+                keccak256(bytes("1.0.0")),
                 address(validator)
             )
         );
@@ -265,7 +265,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         // EIP-712: "\x19\x01" || domainSeparator || structHash
         bytes32 expected = keccak256(abi.encodePacked("\x19\x01", domainSep, structHash));
 
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
         bytes32 actual = validator.getRecoverDigest(address(this), block.chainid, cred, 42, 9999);
         assertEq(actual, expected, "Digest should match manual EIP-712 computation");
     }
@@ -277,9 +277,9 @@ contract WebAuthnRecoveryTest is BaseTest {
     function test_RecoverWithPasskey_RevertWhen_Expired() public {
         _install1();
 
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
         vm.warp(2000);
-        vm.expectRevert(WebAuthnRecoveryBase.RecoveryExpired.selector);
+        vm.expectRevert(OneAuthRecoveryBase.RecoveryExpired.selector);
         validator.recoverWithPasskey(address(this), block.chainid, cred, 0, 1000, "");
     }
 
@@ -289,14 +289,14 @@ contract WebAuthnRecoveryTest is BaseTest {
         // Mark nonce 42 as used by doing a guardian recovery first
         validator.proposeGuardian(address(mockGuardian));
         uint48 expiry = uint48(block.timestamp + 1000);
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(5, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(5, _pubKeyX1, _pubKeyY1);
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, 42, expiry);
         mockGuardian.approveDigest(digest);
         validator.recoverWithGuardian(address(this), block.chainid, cred, 42, expiry, "");
 
         // Now try to use nonce 42 again with passkey recovery
-        WebAuthnRecoveryBase.NewCredential memory cred2 = _newCred(6, _pubKeyX1, _pubKeyY1);
-        vm.expectRevert(WebAuthnRecoveryBase.NonceAlreadyUsed.selector);
+        OneAuthRecoveryBase.NewCredential memory cred2 = _newCred(6, _pubKeyX1, _pubKeyY1);
+        vm.expectRevert(OneAuthRecoveryBase.NonceAlreadyUsed.selector);
         validator.recoverWithPasskey(address(this), block.chainid, cred2, 42, expiry, "");
     }
 
@@ -304,21 +304,21 @@ contract WebAuthnRecoveryTest is BaseTest {
         _install1();
 
         uint48 expiry = uint48(block.timestamp + 1000);
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
         // Sign over wrong digest (TEST_DIGEST, not recovery digest)
         string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
         bytes memory sig = _buildRegularSignature(0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
 
-        vm.expectRevert(WebAuthnRecoveryBase.InvalidRecoverySignature.selector);
+        vm.expectRevert(OneAuthRecoveryBase.InvalidRecoverySignature.selector);
         validator.recoverWithPasskey(address(this), block.chainid, cred, 0, expiry, sig);
     }
 
     function test_RecoverWithPasskey_RevertWhen_NotInitialized() public {
         uint48 expiry = uint48(block.timestamp + 1000);
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
 
         // _validateSignatureWithConfig returns false for uninitialized
-        vm.expectRevert(WebAuthnRecoveryBase.InvalidRecoverySignature.selector);
+        vm.expectRevert(OneAuthRecoveryBase.InvalidRecoverySignature.selector);
         validator.recoverWithPasskey(
             address(this), block.chainid, cred, 0, expiry,
             _buildRegularSignature(0, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST))
@@ -329,10 +329,10 @@ contract WebAuthnRecoveryTest is BaseTest {
         _install1();
 
         uint48 expiry = uint48(block.timestamp + 1000);
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, bytes32(0), bytes32(0));
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, bytes32(0), bytes32(0));
         string memory clientDataJSON = _buildClientDataJSON(TEST_DIGEST);
         bytes memory sig = _buildRegularSignature(0, SIG_R, SIG_S, AUTH_DATA, clientDataJSON);
-        vm.expectRevert(WebAuthnRecoveryBase.InvalidRecoverySignature.selector);
+        vm.expectRevert(OneAuthRecoveryBase.InvalidRecoverySignature.selector);
         validator.recoverWithPasskey(address(this), block.chainid, cred, 0, expiry, sig);
     }
 
@@ -340,8 +340,8 @@ contract WebAuthnRecoveryTest is BaseTest {
         _install1();
 
         uint48 expiry = uint48(block.timestamp + 1000);
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
-        vm.expectRevert(WebAuthnRecoveryBase.InvalidChainId.selector);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        vm.expectRevert(OneAuthRecoveryBase.InvalidChainId.selector);
         validator.recoverWithPasskey(address(this), 999, cred, 0, expiry, "");
     }
 
@@ -350,11 +350,11 @@ contract WebAuthnRecoveryTest is BaseTest {
         validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
 
         // chainId=0 means any chain — should not revert with InvalidChainId
         // (will revert with InvalidRecoverySignature since sig is empty, which proves chainId check passed)
-        vm.expectRevert(WebAuthnRecoveryBase.InvalidRecoverySignature.selector);
+        vm.expectRevert(OneAuthRecoveryBase.InvalidRecoverySignature.selector);
         validator.recoverWithPasskey(address(this), 0, cred, 0, expiry, "");
     }
 
@@ -368,7 +368,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 0;
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
 
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, nonce, expiry);
         mockGuardian.approveDigest(digest);
@@ -388,7 +388,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 7;
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
 
         assertFalse(validator.nonceUsed(address(this), nonce), "Nonce should not be used initially");
 
@@ -404,9 +404,9 @@ contract WebAuthnRecoveryTest is BaseTest {
         _install1();
         validator.proposeGuardian(address(mockGuardian));
 
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
         vm.warp(2000);
-        vm.expectRevert(WebAuthnRecoveryBase.RecoveryExpired.selector);
+        vm.expectRevert(OneAuthRecoveryBase.RecoveryExpired.selector);
         validator.recoverWithGuardian(address(this), block.chainid, cred, 0, 1000, "");
     }
 
@@ -416,7 +416,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 0;
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
 
         // First recovery succeeds
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, nonce, expiry);
@@ -424,8 +424,8 @@ contract WebAuthnRecoveryTest is BaseTest {
         validator.recoverWithGuardian(address(this), block.chainid, cred, nonce, expiry, "");
 
         // Second recovery with same nonce fails
-        WebAuthnRecoveryBase.NewCredential memory cred2 = _newCred(2, _pubKeyX1, _pubKeyY1);
-        vm.expectRevert(WebAuthnRecoveryBase.NonceAlreadyUsed.selector);
+        OneAuthRecoveryBase.NewCredential memory cred2 = _newCred(2, _pubKeyX1, _pubKeyY1);
+        vm.expectRevert(OneAuthRecoveryBase.NonceAlreadyUsed.selector);
         validator.recoverWithGuardian(address(this), block.chainid, cred2, nonce, expiry, "");
     }
 
@@ -434,8 +434,8 @@ contract WebAuthnRecoveryTest is BaseTest {
         // No guardian set
 
         uint48 expiry = uint48(block.timestamp + 1000);
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
-        vm.expectRevert(WebAuthnRecoveryBase.GuardianNotConfigured.selector);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        vm.expectRevert(OneAuthRecoveryBase.GuardianNotConfigured.selector);
         validator.recoverWithGuardian(address(this), block.chainid, cred, 0, expiry, "");
     }
 
@@ -444,8 +444,8 @@ contract WebAuthnRecoveryTest is BaseTest {
         validator.proposeGuardian(address(rejectingGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
-        vm.expectRevert(WebAuthnRecoveryBase.InvalidGuardianSignature.selector);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        vm.expectRevert(OneAuthRecoveryBase.InvalidGuardianSignature.selector);
         validator.recoverWithGuardian(address(this), block.chainid, cred, 0, expiry, "");
     }
 
@@ -454,11 +454,11 @@ contract WebAuthnRecoveryTest is BaseTest {
         validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, bytes32(0), bytes32(0));
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, bytes32(0), bytes32(0));
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, 0, expiry);
         mockGuardian.approveDigest(digest);
 
-        vm.expectRevert(IWebAuthnValidatorV2.InvalidPublicKey.selector);
+        vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
         validator.recoverWithGuardian(address(this), block.chainid, cred, 0, expiry, "");
     }
 
@@ -467,12 +467,12 @@ contract WebAuthnRecoveryTest is BaseTest {
         validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(0, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(0, _pubKeyX1, _pubKeyY1);
         // Try to add keyId 0 again (duplicate credKey)
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, 0, expiry);
         mockGuardian.approveDigest(digest);
 
-        vm.expectRevert(abi.encodeWithSelector(IWebAuthnValidatorV2.KeyIdAlreadyExists.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IOneAuthValidator.KeyIdAlreadyExists.selector, 0));
         validator.recoverWithGuardian(address(this), block.chainid, cred, 0, expiry, "");
     }
 
@@ -480,7 +480,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, 0, expiry);
         mockGuardian.approveDigest(digest);
 
@@ -494,8 +494,8 @@ contract WebAuthnRecoveryTest is BaseTest {
         validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
-        vm.expectRevert(WebAuthnRecoveryBase.InvalidChainId.selector);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        vm.expectRevert(OneAuthRecoveryBase.InvalidChainId.selector);
         validator.recoverWithGuardian(address(this), 999, cred, 0, expiry, "");
     }
 
@@ -504,7 +504,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         validator.proposeGuardian(address(mockGuardian));
 
         uint48 expiry = uint48(block.timestamp + 1000);
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
 
         // chainId=0 means any chain
         bytes32 digest = validator.getRecoverDigest(address(this), 0, cred, 0, expiry);
@@ -525,13 +525,13 @@ contract WebAuthnRecoveryTest is BaseTest {
         uint48 expiry = uint48(block.timestamp + 1000);
 
         // Recovery with nonce 10
-        WebAuthnRecoveryBase.NewCredential memory cred1 = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred1 = _newCred(1, _pubKeyX1, _pubKeyY1);
         bytes32 digest1 = validator.getRecoverDigest(address(this), block.chainid, cred1, 10, expiry);
         mockGuardian.approveDigest(digest1);
         validator.recoverWithGuardian(address(this), block.chainid, cred1, 10, expiry, "");
 
         // Recovery with nonce 20 (different keyId)
-        WebAuthnRecoveryBase.NewCredential memory cred2 = _newCred(2, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred2 = _newCred(2, _pubKeyX1, _pubKeyY1);
         bytes32 digest2 = validator.getRecoverDigest(address(this), block.chainid, cred2, 20, expiry);
         mockGuardian.approveDigest(digest2);
         validator.recoverWithGuardian(address(this), block.chainid, cred2, 20, expiry, "");
@@ -556,7 +556,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
         uint48 expiry = uint48(block.timestamp + 1000);
         // Replace keyId 5 in-place with new pubkey (replace=true)
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCredReplace(5, _pubKeyX0, _pubKeyY0);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCredReplace(5, _pubKeyX0, _pubKeyY0);
 
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, 0, expiry);
         mockGuardian.approveDigest(digest);
@@ -578,7 +578,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
         uint48 expiry = uint48(block.timestamp + 1000);
         // Replace keyId 0 in-place (verifies bool replace works for keyId 0)
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCredReplace(0, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCredReplace(0, _pubKeyX1, _pubKeyY1);
 
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, 0, expiry);
         mockGuardian.approveDigest(digest);
@@ -600,18 +600,18 @@ contract WebAuthnRecoveryTest is BaseTest {
 
         uint48 expiry = uint48(block.timestamp + 1000);
         // Try to replace non-existent keyId 99
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCredReplace(99, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCredReplace(99, _pubKeyX1, _pubKeyY1);
 
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, 0, expiry);
         mockGuardian.approveDigest(digest);
 
-        vm.expectRevert(abi.encodeWithSelector(IWebAuthnValidatorV2.CredentialNotFound.selector, 99));
+        vm.expectRevert(abi.encodeWithSelector(IOneAuthValidator.CredentialNotFound.selector, 99));
         validator.recoverWithGuardian(address(this), block.chainid, cred, 0, expiry, "");
     }
 
     function test_GetRecoverDigest_DifferentReplace() public view {
-        WebAuthnRecoveryBase.NewCredential memory cred1 = _newCred(1, _pubKeyX1, _pubKeyY1);
-        WebAuthnRecoveryBase.NewCredential memory cred2 = _newCredReplace(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred1 = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred2 = _newCredReplace(1, _pubKeyX1, _pubKeyY1);
         bytes32 d1 = validator.getRecoverDigest(address(this), block.chainid, cred1, 0, 1000);
         bytes32 d2 = validator.getRecoverDigest(address(this), block.chainid, cred2, 0, 1000);
         assertTrue(d1 != d2, "Different replace flag should produce different digest");
@@ -627,7 +627,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 42;
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
 
         // Execute a recovery to consume nonce 42
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, nonce, expiry);
@@ -659,13 +659,13 @@ contract WebAuthnRecoveryTest is BaseTest {
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 5;
-        WebAuthnRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
+        OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
 
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, nonce, expiry);
         mockGuardian.approveDigest(digest);
 
         vm.expectEmit(true, true, true, true);
-        emit WebAuthnRecoveryBase.GuardianRecoveryExecuted(
+        emit OneAuthRecoveryBase.GuardianRecoveryExecuted(
             address(this), address(mockGuardian), 1, nonce
         );
 
@@ -674,7 +674,7 @@ contract WebAuthnRecoveryTest is BaseTest {
 
     function test_ProposeGuardian_EmitsEvent() public {
         vm.expectEmit(true, true, false, false);
-        emit WebAuthnRecoveryBase.GuardianSet(address(this), address(mockGuardian));
+        emit OneAuthRecoveryBase.GuardianSet(address(this), address(mockGuardian));
 
         validator.proposeGuardian(address(mockGuardian));
     }
@@ -686,7 +686,7 @@ contract WebAuthnRecoveryTest is BaseTest {
     function test_SetGuardianTimelock() public {
         uint48 duration = 1 days;
         vm.expectEmit(true, false, false, true);
-        emit WebAuthnRecoveryBase.GuardianTimelockSet(address(this), duration);
+        emit OneAuthRecoveryBase.GuardianTimelockSet(address(this), duration);
         validator.setGuardianTimelock(duration);
 
         assertEq(validator.guardianTimelock(address(this)), duration);
@@ -696,7 +696,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         validator.setGuardianTimelock(1 days);
 
         vm.expectEmit(true, true, false, true);
-        emit WebAuthnRecoveryBase.GuardianChangeProposed(
+        emit OneAuthRecoveryBase.GuardianChangeProposed(
             address(this), address(mockGuardian), uint48(block.timestamp + 1 days)
         );
         validator.proposeGuardian(address(mockGuardian));
@@ -715,7 +715,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         validator.proposeGuardian(address(mockGuardian));
 
         // Try to confirm before timelock elapses
-        vm.expectRevert(WebAuthnRecoveryBase.GuardianTimelockNotElapsed.selector);
+        vm.expectRevert(OneAuthRecoveryBase.GuardianTimelockNotElapsed.selector);
         validator.confirmGuardian();
     }
 
@@ -727,7 +727,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         vm.warp(block.timestamp + 1 days);
 
         vm.expectEmit(true, true, false, false);
-        emit WebAuthnRecoveryBase.GuardianSet(address(this), address(mockGuardian));
+        emit OneAuthRecoveryBase.GuardianSet(address(this), address(mockGuardian));
         validator.confirmGuardian();
 
         // Guardian should now be set
@@ -744,7 +744,7 @@ contract WebAuthnRecoveryTest is BaseTest {
         validator.proposeGuardian(address(mockGuardian));
 
         vm.expectEmit(true, false, false, false);
-        emit WebAuthnRecoveryBase.GuardianChangeCancelled(address(this));
+        emit OneAuthRecoveryBase.GuardianChangeCancelled(address(this));
         validator.cancelGuardianChange();
 
         // Pending should be cleared
@@ -757,12 +757,12 @@ contract WebAuthnRecoveryTest is BaseTest {
     }
 
     function test_CancelGuardianChange_RevertWhen_NoPending() public {
-        vm.expectRevert(WebAuthnRecoveryBase.NoPendingGuardianChange.selector);
+        vm.expectRevert(OneAuthRecoveryBase.NoPendingGuardianChange.selector);
         validator.cancelGuardianChange();
     }
 
     function test_ConfirmGuardian_RevertWhen_NoPending() public {
-        vm.expectRevert(WebAuthnRecoveryBase.NoPendingGuardianChange.selector);
+        vm.expectRevert(OneAuthRecoveryBase.NoPendingGuardianChange.selector);
         validator.confirmGuardian();
     }
 
@@ -820,9 +820,9 @@ contract WebAuthnRecoveryTest is BaseTest {
     function test_OnInstall_SetsGuardianTimelock() public {
         uint16[] memory keyIds = new uint16[](1);
         keyIds[0] = 0;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](1);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](1);
+        creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
         validator.onInstall(abi.encode(keyIds, creds, address(mockGuardian), uint48(1 days)));
 
         assertEq(validator.guardian(address(this)), address(mockGuardian));

@@ -14,7 +14,7 @@ export {
   buildMerkleTree,
   verifyMerkleProof,
   MODULE_ADDRESS,
-} from "./webauthn-v2.js";
+} from "./oneauth.js";
 
 export type {
   CredentialInput,
@@ -27,10 +27,10 @@ export type {
 } from "./types.js";
 
 export {
-  getWebAuthnV2Validator,
-  getWebAuthnV2ValidatorSignature,
-  getWebAuthnV2ValidatorMockSignature,
-  WEBAUTHN_V2_VALIDATOR_ADDRESS,
+  getOneAuthValidator,
+  getOneAuthValidatorSignature,
+  getOneAuthValidatorMockSignature,
+  ONEAUTH_VALIDATOR_ADDRESS,
 } from "./rhinestone.js";
 
 export type { Module } from "./rhinestone.js";

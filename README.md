@@ -4,7 +4,7 @@ ERC-7579 validator modules for smart accounts with WebAuthn (passkey) authentica
 
 ## Overview
 
-This repo contains a **Solidity smart contract** (`WebAuthnValidatorV2`) and a **cross-platform SDK** (Rust WASM + TypeScript) that produce byte-identical outputs — verified by a golden test suite that runs Forge and Rust against the same fixture data.
+This repo contains a **Solidity smart contract** (`OneAuthValidator`) and a **cross-platform SDK** (Rust WASM + TypeScript) that produce byte-identical outputs — verified by a golden test suite that runs Forge and Rust against the same fixture data.
 
 ### What it does
 
@@ -19,8 +19,8 @@ This repo contains a **Solidity smart contract** (`WebAuthnValidatorV2`) and a *
 ```
 Solidity (source of truth)        SDK (client-side encoding)
 ─────────────────────────         ──────────────────────────
-WebAuthnValidatorV2.sol           Rust (encoding-core + webauthn-v2)
-WebAuthnRecoveryBase.sol              ↓ wasm-pack
+OneAuthValidator.sol              Rust (encoding-core + oneauth)
+OneAuthRecoveryBase.sol               ↓ wasm-pack
                                   WASM binary (.wasm)
                                       ↓ wasm-bindgen
                                   TypeScript wrapper (viem-compatible)
@@ -30,7 +30,7 @@ The Solidity contract defines the on-chain validation logic. The SDK handles all
 
 ## Solidity Contracts
 
-### `WebAuthnValidatorV2` (`src/WebAuthnValidator/WebAuthnValidatorV2.sol`)
+### `OneAuthValidator` (`src/OneAuth/OneAuthValidator.sol`)
 
 An ERC-7579 hybrid validator (stateful + stateless) with:
 
@@ -42,14 +42,14 @@ An ERC-7579 hybrid validator (stateful + stateless) with:
 - **EIP-1271 support** via `isValidSignatureWithSender`
 - **Stateless validation** via `validateSignatureWithData` — credentials provided externally
 
-EIP-712 domain: `WebAuthnValidator v2.0.0`
+EIP-712 domain: `OneAuthValidator v1.0.0`
 
 Typehashes:
 - `PasskeyDigest(bytes32 digest)` — single-chain operations
 - `PasskeyMultichain(bytes32 root)` — cross-chain merkle root
 - `RecoverPasskey(address account,uint256 chainId,uint16 newKeyId,uint256 newPubKeyX,uint256 newPubKeyY,bool newRequireUV,uint256 nonce,uint48 expiry)` — recovery
 
-### `WebAuthnRecoveryBase` (`src/WebAuthnValidator/WebAuthnRecoveryBase.sol`)
+### `OneAuthRecoveryBase` (`src/OneAuth/OneAuthRecoveryBase.sol`)
 
 Abstract recovery mixin providing two recovery paths:
 
@@ -91,9 +91,9 @@ pub trait IERC7579StatelessValidator: IERC7579Validator {
 
 Also provides shared utilities: `keccak256` and `MerkleTree` (Solady-compatible sorted-pair hashing).
 
-#### `webauthn-v2` — WebAuthnValidatorV2 SDK
+#### `oneauth` — OneAuthValidator SDK
 
-Implements all three traits via the zero-sized `WebAuthnValidatorV2` struct. Compiles to both native Rust (`rlib`) and WebAssembly (`cdylib`).
+Implements all three traits via the zero-sized `OneAuthValidator` struct. Compiles to both native Rust (`rlib`) and WebAssembly (`cdylib`).
 
 **Modules:**
 
@@ -103,7 +103,7 @@ Implements all three traits via the zero-sized `WebAuthnValidatorV2` struct. Com
 | `signature.rs` | Stateful + stateless signature packing (both regular and merkle paths) |
 | `digest.rs` | EIP-712 domain separators, challenge wrapping (`passkey_digest`, `passkey_multichain`), recovery digest, typed data builders |
 | `merkle.rs` | Re-export of `encoding-core::merkle` (Solady-compatible merkle tree) |
-| `module.rs` | `WebAuthnValidatorV2` struct implementing the ERC-7579 trait hierarchy |
+| `module.rs` | `OneAuthValidator` struct implementing the ERC-7579 trait hierarchy |
 | `lib.rs` | WASM entry points (`wasm-bindgen` exports) — all route through the trait system |
 
 **WASM Exports:**
@@ -127,7 +127,7 @@ Implements all three traits via the zero-sized `WebAuthnValidatorV2` struct. Com
 Thin TypeScript layer over the WASM module, adding viem type safety and ergonomic APIs:
 
 ```typescript
-import { getDigest, encodeInstall, encodeSignature } from "./webauthn-v2";
+import { getDigest, encodeInstall, encodeSignature } from "./oneauth";
 
 // 1. Install the module with a passkey credential
 const { address, initData } = encodeInstall({
@@ -157,9 +157,9 @@ A cross-language test system ensures the Rust SDK produces byte-identical output
 
 ```
 forge script GenerateGoldenVectors.s.sol
-    → deploys WebAuthnValidatorV2
+    → deploys OneAuthValidator
     → computes all outputs using the Solidity contract
-    → writes test/WebAuthnValidator/fixtures/golden-vectors.json
+    → writes test/OneAuth/fixtures/golden-vectors.json
 
 cargo test (in sdk/)
     → reads golden-vectors.json
@@ -195,18 +195,18 @@ During development, the golden tests caught a real EIP-712 domain separator bug:
 
 ```
 src/
-  WebAuthnValidator/
-    WebAuthnValidatorV2.sol      # Main validator contract
-    WebAuthnRecoveryBase.sol     # Recovery mixin (passkey + guardian)
+  OneAuth/
+    OneAuthValidator.sol         # Main validator contract
+    OneAuthRecoveryBase.sol      # Recovery mixin (passkey + guardian)
 
 test/
-  WebAuthnValidator/
+  OneAuth/
     unit/concrete/
-      WebAuthnValidatorV2.t.sol  # V2 unit tests
-      WebAuthnRecovery.t.sol     # Recovery tests
+      OneAuthValidator.t.sol     # OneAuthValidator unit tests
+      OneAuthRecovery.t.sol      # Recovery tests
       GasComparison.t.sol        # Gas benchmarks
     integration/
-      WebAuthnValidator.t.sol    # Integration tests
+      OneAuthValidator.t.sol     # Integration tests
     fixtures/
       golden-vectors.json        # Generated golden test vectors
 
@@ -223,7 +223,7 @@ sdk/
       types.rs                   # ModuleType, EncodeError
       keccak.rs                  # keccak256
       merkle.rs                  # Solady-compatible merkle tree
-  webauthn-v2/                   # WebAuthnValidatorV2 SDK (Rust + WASM)
+  oneauth/                       # OneAuthValidator SDK (Rust + WASM)
     src/
       encode.rs                  # onInstall/onUninstall ABI encoding
       signature.rs               # Stateful + stateless signature packing
@@ -235,10 +235,10 @@ sdk/
       golden.rs                  # Golden parity tests (Rust vs Solidity)
   ts/                            # TypeScript wrapper
     src/
-      webauthn-v2.ts             # Main API (viem-typed)
+      oneauth.ts                 # Main API (viem-typed)
       types.ts                   # TypeScript interfaces
       index.ts                   # Package entry point
-      wasm/webauthn-v2/          # Built WASM artifacts
+      wasm/oneauth/              # Built WASM artifacts
 ```
 
 ## Building
