@@ -2,25 +2,25 @@ use encoding_core::{
     EncodeError, IERC7579Module, IERC7579StatelessValidator, IERC7579Validator, ModuleType,
 };
 
-/// Zero-sized struct representing the WebAuthnValidatorV2 module.
+/// Zero-sized struct representing the OneAuthValidator module.
 /// Implements the ERC-7579 trait hierarchy, delegating to existing free functions.
-pub struct WebAuthnValidatorV2;
+pub struct OneAuthValidator;
 
-impl IERC7579Module for WebAuthnValidatorV2 {
+impl IERC7579Module for OneAuthValidator {
     fn module_type(&self) -> ModuleType {
         ModuleType::Validator
     }
 
     fn name(&self) -> &str {
-        "WebAuthnValidator"
+        "OneAuthValidator"
     }
 
     fn version(&self) -> &str {
-        "2.0.0"
+        "1.0.0"
     }
 }
 
-impl IERC7579Validator for WebAuthnValidatorV2 {
+impl IERC7579Validator for OneAuthValidator {
     type InstallData = crate::encode::InstallInput;
     type SignatureConfig = crate::signature::StatefulSignatureConfig;
 
@@ -39,7 +39,7 @@ impl IERC7579Validator for WebAuthnValidatorV2 {
     }
 }
 
-impl IERC7579StatelessValidator for WebAuthnValidatorV2 {
+impl IERC7579StatelessValidator for OneAuthValidator {
     type StatelessConfig = crate::signature::StatelessSignatureConfig;
 
     fn encode_stateless_data(&self, config: &Self::StatelessConfig) -> Vec<u8> {
@@ -55,15 +55,15 @@ mod tests {
 
     #[test]
     fn module_metadata() {
-        let m = WebAuthnValidatorV2;
+        let m = OneAuthValidator;
         assert_eq!(m.module_type(), ModuleType::Validator);
-        assert_eq!(m.name(), "WebAuthnValidator");
-        assert_eq!(m.version(), "2.0.0");
+        assert_eq!(m.name(), "OneAuthValidator");
+        assert_eq!(m.version(), "1.0.0");
     }
 
     #[test]
     fn trait_encode_install() {
-        let m = WebAuthnValidatorV2;
+        let m = OneAuthValidator;
         let input = InstallInput {
             key_ids: vec![0],
             credentials: vec![CredentialInput {
@@ -83,14 +83,14 @@ mod tests {
 
     #[test]
     fn trait_encode_uninstall() {
-        let m = WebAuthnValidatorV2;
+        let m = OneAuthValidator;
         let bytes = m.encode_uninstall();
         assert!(bytes.is_empty());
     }
 
     #[test]
     fn trait_encode_signature() {
-        let m = WebAuthnValidatorV2;
+        let m = OneAuthValidator;
         let config = StatefulSignatureConfig {
             key_id: 0,
             merkle: None,
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn trait_encode_stateless_data() {
-        let m = WebAuthnValidatorV2;
+        let m = OneAuthValidator;
         let config = StatelessSignatureConfig {
             pub_key_x: [0x11; 32],
             pub_key_y: [0x22; 32],

@@ -2,9 +2,9 @@
 pragma solidity ^0.8.28;
 
 import { Script, console2 } from "forge-std/Script.sol";
-import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
-import { WebAuthnRecoveryBase } from "src/WebAuthnValidator/WebAuthnRecoveryBase.sol";
-import { EIP712Lib } from "src/WebAuthnValidator/lib/EIP712Lib.sol";
+import { OneAuthValidator } from "src/OneAuth/OneAuthValidator.sol";
+import { OneAuthRecoveryBase } from "src/OneAuth/OneAuthRecoveryBase.sol";
+import { EIP712Lib } from "src/OneAuth/lib/EIP712Lib.sol";
 
 /// @notice Generates golden test vectors as JSON for cross-language validation.
 /// @dev Run: forge script script/GenerateGoldenVectors.s.sol -vvv
@@ -15,7 +15,7 @@ contract GenerateGoldenVectors is Script {
     bytes32 constant DIGEST_C = 0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef;
 
     function run() public {
-        WebAuthnValidatorV2 validator = new WebAuthnValidatorV2();
+        OneAuthValidator validator = new OneAuthValidator();
 
         console2.log("Validator address:", address(validator));
         console2.log("Chain ID:", block.chainid);
@@ -32,25 +32,25 @@ contract GenerateGoldenVectors is Script {
         vm.serializeString(root, "signature_encoding", _buildSignatureEncoding());
 
         string memory finalJson = vm.serializeString(root, "_version", "1");
-        vm.writeJson(finalJson, "test/WebAuthnValidator/fixtures/golden-vectors.json");
+        vm.writeJson(finalJson, "test/OneAuth/fixtures/golden-vectors.json");
         console2.log("Written golden vectors.");
     }
 
-    function _buildTypehashes(WebAuthnValidatorV2 v) internal returns (string memory) {
+    function _buildTypehashes(OneAuthValidator v) internal returns (string memory) {
         string memory obj = "typehashes";
         vm.serializeBytes32(obj, "passkey_digest", EIP712Lib.PASSKEY_DIGEST_TYPEHASH);
         vm.serializeBytes32(obj, "passkey_multichain", EIP712Lib.PASSKEY_MULTICHAIN_TYPEHASH);
         return vm.serializeBytes32(obj, "recover_passkey", EIP712Lib.RECOVER_PASSKEY_TYPEHASH);
     }
 
-    function _buildPasskeyDigests(WebAuthnValidatorV2 v) internal returns (string memory) {
+    function _buildPasskeyDigests(OneAuthValidator v) internal returns (string memory) {
         string memory arr = "passkey_digests";
         vm.serializeString(arr, "0", _digestVector("pd_a", DIGEST_A, v.getPasskeyDigest(DIGEST_A)));
         vm.serializeString(arr, "1", _digestVector("pd_b", DIGEST_B, v.getPasskeyDigest(DIGEST_B)));
         return vm.serializeString(arr, "2", _digestVector("pd_c", DIGEST_C, v.getPasskeyDigest(DIGEST_C)));
     }
 
-    function _buildPasskeyMultichains(WebAuthnValidatorV2 v) internal returns (string memory) {
+    function _buildPasskeyMultichains(OneAuthValidator v) internal returns (string memory) {
         string memory arr = "passkey_multichains";
         vm.serializeString(arr, "0", _digestVector("pm_a", DIGEST_A, v.getPasskeyMultichain(DIGEST_A)));
         vm.serializeString(arr, "1", _digestVector("pm_b", DIGEST_B, v.getPasskeyMultichain(DIGEST_B)));
@@ -69,7 +69,7 @@ contract GenerateGoldenVectors is Script {
         return vm.serializeBytes32(key, "output", output);
     }
 
-    function _buildRecoveryDigest(WebAuthnValidatorV2 v) internal returns (string memory) {
+    function _buildRecoveryDigest(OneAuthValidator v) internal returns (string memory) {
         string memory obj = "recovery";
 
         address account = 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045;
@@ -80,7 +80,7 @@ contract GenerateGoldenVectors is Script {
         uint256 nonce = 42;
         uint48 expiry = 1_700_000_000;
 
-        WebAuthnRecoveryBase.NewCredential memory cred = WebAuthnRecoveryBase.NewCredential({
+        OneAuthRecoveryBase.NewCredential memory cred = OneAuthRecoveryBase.NewCredential({
             keyId: keyId,
             pubKeyX: bytes32(pubKeyX),
             pubKeyY: bytes32(pubKeyY),

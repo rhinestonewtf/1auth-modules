@@ -1,5 +1,5 @@
 import type { Address, Hex } from "viem";
-import { encodeInstall, encodeSignature, MODULE_ADDRESS } from "./webauthn-v2.js";
+import { encodeInstall, encodeSignature, MODULE_ADDRESS } from "./oneauth.js";
 import type { InstallInput, StatefulSignatureConfig } from "./types.js";
 
 /**
@@ -18,17 +18,17 @@ export interface Module {
 }
 
 /**
- * Create a Rhinestone-compatible Module object for WebAuthnValidatorV2.
+ * Create a Rhinestone-compatible Module object for OneAuthValidator.
  *
  * Usage with permissionless.js:
  * ```ts
- * const module = getWebAuthnV2Validator({
+ * const module = getOneAuthValidator({
  *   credentials: [{ keyId: 0, pubKeyX: "0x...", pubKeyY: "0x..." }],
  * });
  * const hash = await smartAccountClient.installModule(module);
  * ```
  */
-export function getWebAuthnV2Validator(
+export function getOneAuthValidator(
   input: InstallInput & { hook?: Address }
 ): Module {
   const { address, initData } = encodeInstall(input);
@@ -44,10 +44,10 @@ export function getWebAuthnV2Validator(
 }
 
 /**
- * Encode a WebAuthn signature in the format expected by WebAuthnValidatorV2.
+ * Encode a WebAuthn signature in the format expected by OneAuthValidator.
  * Rhinestone naming convention wrapper around encodeSignature.
  */
-export function getWebAuthnV2ValidatorSignature(
+export function getOneAuthValidatorSignature(
   config: StatefulSignatureConfig,
   webauthnAuth: Hex
 ): Hex {
@@ -72,7 +72,7 @@ export function getWebAuthnV2ValidatorSignature(
  *   [73:110] authenticatorData (37 bytes, zeros)
  *   [110:]   clientDataJSON (minimal valid JSON)
  */
-export function getWebAuthnV2ValidatorMockSignature(): Hex {
+export function getOneAuthValidatorMockSignature(): Hex {
   return MOCK_SIGNATURE;
 }
 
@@ -100,4 +100,4 @@ const MOCK_SIGNATURE: Hex =
   "414141414141414141414141414141414141414141414141414141414141414141414141414141414141" +
   "413d227d";
 
-export { MODULE_ADDRESS as WEBAUTHN_V2_VALIDATOR_ADDRESS };
+export { MODULE_ADDRESS as ONEAUTH_VALIDATOR_ADDRESS };

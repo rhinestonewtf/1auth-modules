@@ -6,7 +6,7 @@ type HexBytes32 = String;
 type HexAddress = String;
 type HexU256 = String;
 
-// ── EIP-712 typehashes (matching WebAuthnValidatorV2.sol) ──
+// ── EIP-712 typehashes (matching OneAuthValidator.sol) ──
 
 /// keccak256("PasskeyDigest(bytes32 digest)")
 /// Used for chain-specific single operation signing.
@@ -20,10 +20,10 @@ pub fn passkey_multichain_typehash() -> [u8; 32] {
     keccak256(b"PasskeyMultichain(bytes32 root)")
 }
 
-// ── EIP-712 domain (matching Solady EIP712 + WebAuthnRecoveryBase) ──
+// ── EIP-712 domain (matching Solady EIP712 + OneAuthRecoveryBase) ──
 
-const DOMAIN_NAME: &[u8] = b"WebAuthnValidator";
-const DOMAIN_VERSION: &[u8] = b"2.0.0";
+const DOMAIN_NAME: &[u8] = b"OneAuthValidator";
+const DOMAIN_VERSION: &[u8] = b"1.0.0";
 
 /// Full EIP-712 domain separator (with chainId + verifyingContract).
 /// Matches Solady's _hashTypedData path.
@@ -120,8 +120,8 @@ pub fn passkey_multichain(root: &[u8; 32], verifying_contract: &[u8; 20]) -> [u8
 
 // ── EIP-712 typed data builders (viem-compatible JSON) ──
 
-const DOMAIN_NAME_STR: &str = "WebAuthnValidator";
-const DOMAIN_VERSION_STR: &str = "2.0.0";
+const DOMAIN_NAME_STR: &str = "OneAuthValidator";
+const DOMAIN_VERSION_STR: &str = "1.0.0";
 
 /// Build a viem-compatible EIP-712 typed data object for PasskeyDigest.
 /// Chain-specific: domain includes chainId + verifyingContract.
@@ -453,8 +453,8 @@ mod tests {
         let contract_hex = format!("0x{}", hex::encode(TEST_CONTRACT));
         let td = passkey_digest_typed_data(&digest_hex, 1, &contract_hex);
 
-        assert_eq!(td["domain"]["name"], "WebAuthnValidator");
-        assert_eq!(td["domain"]["version"], "2.0.0");
+        assert_eq!(td["domain"]["name"], "OneAuthValidator");
+        assert_eq!(td["domain"]["version"], "1.0.0");
         assert_eq!(td["domain"]["chainId"], 1);
         assert_eq!(td["domain"]["verifyingContract"], contract_hex);
         assert_eq!(td["primaryType"], "PasskeyDigest");
@@ -469,8 +469,8 @@ mod tests {
         let contract_hex = format!("0x{}", hex::encode(TEST_CONTRACT));
         let td = passkey_multichain_typed_data(&root_hex, &contract_hex);
 
-        assert_eq!(td["domain"]["name"], "WebAuthnValidator");
-        assert_eq!(td["domain"]["version"], "2.0.0");
+        assert_eq!(td["domain"]["name"], "OneAuthValidator");
+        assert_eq!(td["domain"]["version"], "1.0.0");
         // No chainId for multichain, but verifyingContract is present
         assert!(td["domain"].get("chainId").is_none());
         assert_eq!(td["domain"]["verifyingContract"], contract_hex);

@@ -5,8 +5,8 @@ import { EIP712 } from "solady/utils/EIP712.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
 import { EIP712Lib } from "./lib/EIP712Lib.sol";
 
-/// @title WebAuthnRecoveryBase
-/// @notice Abstract recovery mixin for WebAuthn validators with EIP-712 typed data
+/// @title OneAuthRecoveryBase
+/// @notice Abstract recovery mixin for OneAuth validators with EIP-712 typed data
 /// @dev Provides two recovery paths:
 ///      1. Existing passkey signs an EIP-712 RecoverPasskey message (`recoverWithPasskey`)
 ///      2. Guardian (EOA or EIP-1271 smart contract) signs the same EIP-712 message (`recoverWithGuardian`)
@@ -36,7 +36,7 @@ import { EIP712Lib } from "./lib/EIP712Lib.sol";
 ///        `_hashTypedDataSansChainId` for the domain separator (no chainId in domain) but
 ///        embeds `chainId` in the struct hash. This allows cross-chain recovery with
 ///        chainId=0 while still supporting chain-specific recovery with a non-zero chainId.
-abstract contract WebAuthnRecoveryBase is EIP712 {
+abstract contract OneAuthRecoveryBase is EIP712 {
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
@@ -140,7 +140,7 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
 
     /**
      * @notice Returns the EIP-712 domain name and version for this contract
-     * @dev Domain name "WebAuthnValidator" and version "2.0.0" are used by both
+     * @dev Domain name "OneAuthValidator" and version "1.0.0" are used by both
      *      `_hashTypedData` (chain-specific, includes chainId in domain) and
      *      `_hashTypedDataSansChainId` (chain-agnostic, omits chainId from domain).
      *      Recovery operations use the chain-agnostic variant so that a single signature
@@ -154,8 +154,8 @@ abstract contract WebAuthnRecoveryBase is EIP712 {
         override
         returns (string memory name, string memory version)
     {
-        name = "WebAuthnValidator";
-        version = "2.0.0";
+        name = "OneAuthValidator";
+        version = "1.0.0";
     }
 
     /*//////////////////////////////////////////////////////////////

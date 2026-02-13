@@ -5,11 +5,11 @@ pub mod module;
 pub mod signature;
 
 use encoding_core::{IERC7579StatelessValidator, IERC7579Validator};
-use module::WebAuthnValidatorV2;
+use module::OneAuthValidator;
 use wasm_bindgen::prelude::*;
 
 const MODULE_ADDRESS: &str = "0x0000000000578c4cb0e472a5462da43c495c3f33";
-const VALIDATOR: WebAuthnValidatorV2 = WebAuthnValidatorV2;
+const VALIDATOR: OneAuthValidator = OneAuthValidator;
 
 // ── onInstall / onUninstall ──
 
@@ -34,7 +34,7 @@ pub fn wasm_encode_install(input_json: &str) -> Result<String, JsError> {
 /// Prepare digest(s) with EIP-712 challenge wrapping.
 /// digests_json: JSON array of hex bytes32 strings
 /// chain_id: chain ID for single-digest (PasskeyDigest) path
-/// verifying_contract_hex: deployed WebAuthnValidatorV2 address
+/// verifying_contract_hex: deployed OneAuthValidator address
 #[wasm_bindgen(js_name = getDigest)]
 pub fn wasm_get_digest(
     digests_json: &str,

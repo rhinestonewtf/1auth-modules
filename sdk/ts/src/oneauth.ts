@@ -19,7 +19,7 @@ import {
   getPasskeyMultichainTypedData as wasmPasskeyMultichainTypedData,
   getRecoveryDigest as wasmGetRecoveryDigest,
   getRecoveryTypehash as wasmGetRecoveryTypehash,
-} from "./wasm/webauthn-v2/webauthn_v2.js";
+} from "./wasm/oneauth/oneauth.js";
 
 const MODULE_ADDRESS: Address = "0x0000000000578c4cb0e472a5462da43c495c3f33";
 

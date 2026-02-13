@@ -5,7 +5,7 @@ import { EfficientHashLib } from "solady/utils/EfficientHashLib.sol";
 
 /**
  * @title EIP712Lib
- * @notice EIP-712 typehash constants and gas-efficient struct hashing for the WebAuthn validator.
+ * @notice EIP-712 typehash constants and gas-efficient struct hashing for the OneAuth validator.
  * @dev Uses Solady's EfficientHashLib instead of keccak256(abi.encode(...))
  *      for gas-efficient struct hashing via direct memory operations.
  */

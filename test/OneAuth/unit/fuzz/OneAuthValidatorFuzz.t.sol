@@ -2,9 +2,9 @@
 pragma solidity ^0.8.23;
 
 import { BaseTest } from "test/Base.t.sol";
-import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
-import { IWebAuthnValidatorV2 } from "src/WebAuthnValidator/IWebAuthnValidatorV2.sol";
-import { P256Lib } from "src/WebAuthnValidator/lib/P256Lib.sol";
+import { OneAuthValidator } from "src/OneAuth/OneAuthValidator.sol";
+import { IOneAuthValidator } from "src/OneAuth/IOneAuthValidator.sol";
+import { P256Lib } from "src/OneAuth/lib/P256Lib.sol";
 import { ERC7579HybridValidatorBase, ERC7579ValidatorBase } from "modulekit/Modules.sol";
 import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.sol";
 import { EIP1271_MAGIC_VALUE } from "test/utils/Constants.sol";
@@ -16,8 +16,8 @@ contract P256LibFuzzHarness {
     }
 }
 
-contract WebAuthnValidatorV2FuzzTest is BaseTest {
-    WebAuthnValidatorV2 internal validator;
+contract OneAuthValidatorFuzzTest is BaseTest {
+    OneAuthValidator internal validator;
     P256LibFuzzHarness internal p256Harness;
 
     bytes32 _pubKeyX0 =
@@ -30,15 +30,15 @@ contract WebAuthnValidatorV2FuzzTest is BaseTest {
 
     function setUp() public override {
         BaseTest.setUp();
-        validator = new WebAuthnValidatorV2();
+        validator = new OneAuthValidator();
         p256Harness = new P256LibFuzzHarness();
 
         // Install with one valid credential
         uint16[] memory keyIds = new uint16[](1);
         keyIds[0] = 0;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](1);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](1);
+        creds[0] = OneAuthValidator.WebAuthnCredential({
             pubKeyX: _pubKeyX0,
             pubKeyY: _pubKeyY0
         });
@@ -55,12 +55,12 @@ contract WebAuthnValidatorV2FuzzTest is BaseTest {
         vm.assume(x != _pubKeyX0);
         vm.assume(uint256(x) != 0 && uint256(y) != 0);
 
-        WebAuthnValidatorV2 freshValidator = new WebAuthnValidatorV2();
+        OneAuthValidator freshValidator = new OneAuthValidator();
         uint16[] memory keyIds = new uint16[](1);
         keyIds[0] = 0;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](1);
-        creds[0] = WebAuthnValidatorV2.WebAuthnCredential({ pubKeyX: x, pubKeyY: y });
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](1);
+        creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: x, pubKeyY: y });
 
         // The overwhelming probability is this will revert with InvalidPublicKey.
         // On the astronomically rare chance it's on-curve, the install succeeds — that's fine.
@@ -69,7 +69,7 @@ contract WebAuthnValidatorV2FuzzTest is BaseTest {
         } catch (bytes memory reason) {
             assertEq(
                 bytes4(reason),
-                IWebAuthnValidatorV2.InvalidPublicKey.selector,
+                IOneAuthValidator.InvalidPublicKey.selector,
                 "Should revert with InvalidPublicKey"
             );
         }

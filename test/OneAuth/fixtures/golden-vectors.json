@@ -23,29 +23,29 @@
   "passkey_digest": {
     "0": {
       "input": "0xf631058a3ba1116acce12396fad0a125b5041c43f8e15723709f81aa8d5f4ccf",
-      "output": "0xacd34a3ce4b143ff25af586feb5e925d9cb718fc9b0189bbfceb435b5cddde73"
+      "output": "0xef9b3568f45dcc982aa60318917bb2b2a50c8edfce2790e5f8af74f85d604488"
     },
     "1": {
       "input": "0x1111111111111111111111111111111111111111111111111111111111111111",
-      "output": "0x65f1c1780778b1d3ee399894da719881811e42fe6ad3ac088eb2f67e3fe711ef"
+      "output": "0xc3c52a56bcdf717f88a4265325a029a93a6b966e206fedc2380804bab2386cd4"
     },
     "2": {
       "input": "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-      "output": "0x01768bd2e4449e283bd0de885e44513df28eb25fb68d419325caa4f0f7c53ec1"
+      "output": "0xa25a1c6c8afa3dcf801cb0af0b03522808b5e388d324080b3a3e47c1b079d688"
     }
   },
   "passkey_multichain": {
     "0": {
       "input": "0xf631058a3ba1116acce12396fad0a125b5041c43f8e15723709f81aa8d5f4ccf",
-      "output": "0x397270ad4bf9cdcc24433855f14e5c8b3ac9a08ab2254538b879c9f712d87557"
+      "output": "0x5f00ae16716523729dc21f1ae7a12499c4d438c3b96b751a54221a814b36e0df"
     },
     "1": {
       "input": "0x1111111111111111111111111111111111111111111111111111111111111111",
-      "output": "0xa76da55f255c9ee3d41c839fa7ac8cc7f732f53a38f346e17ba58b893ac619e5"
+      "output": "0x1e0232ac084ad240b4341283b254124c0d95d004af24f097b8e2fe968ea91922"
     },
     "2": {
       "input": "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-      "output": "0x9a1d271cfa1c7be96ef9b972d701dd67d657e409189ab3380a056f152c6849f0"
+      "output": "0x7ead9b16be4e82da84baddd71a42da58c0f15893f106030c88515e10c9cfaa30"
     }
   },
   "recovery_digest": {
@@ -56,7 +56,7 @@
     "new_pub_key_x": "39822268494420380862142963446600484332503039179828777786780392414513338988387",
     "new_pub_key_y": "56664491113712345833914954889732955401980098641432724692354286094797814265809",
     "nonce": 42,
-    "output": "0xcec9f0072307133a2a7b8ef322c248813930af892f97f3cc2b50c94828099d63"
+    "output": "0x5644ec67aa683ca8f567185deb61b07782e878e9a0c42cdb5ed65c7d57f90ff4"
   },
   "signature_encoding": {
     "_done": "true",

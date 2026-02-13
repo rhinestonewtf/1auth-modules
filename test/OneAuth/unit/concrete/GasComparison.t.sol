@@ -2,21 +2,21 @@
 pragma solidity ^0.8.23;
 
 import { BaseTest } from "test/Base.t.sol";
-import { WebAuthnValidator } from "test/WebAuthnValidator/helpers/WebAuthnValidator.sol";
-import { WebAuthnValidatorV2 } from "src/WebAuthnValidator/WebAuthnValidatorV2.sol";
+import { WebAuthnValidator } from "test/OneAuth/helpers/WebAuthnValidator.sol";
+import { OneAuthValidator } from "src/OneAuth/OneAuthValidator.sol";
 import { ERC7579ValidatorBase } from "modulekit/Modules.sol";
 import { WebAuthn } from "webauthn-sol/src/WebAuthn.sol";
 import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.sol";
 import { Base64Url } from "FreshCryptoLib/utils/Base64Url.sol";
 import { LibSort } from "solady/utils/LibSort.sol";
-import { P256VerifierWrapper } from "test/WebAuthnValidator/helpers/P256VerifierWrapper.sol";
+import { P256VerifierWrapper } from "test/OneAuth/helpers/P256VerifierWrapper.sol";
 
 /// @title Gas comparison: WebAuthnValidator v1 vs v2 (single signer, single chain)
 contract GasComparisonTest is BaseTest {
     using LibSort for bytes32[];
 
     WebAuthnValidator internal v1;
-    WebAuthnValidatorV2 internal v2;
+    OneAuthValidator internal v2;
 
     uint256 constant P256_PRIV_KEY = 0x03d99692017473e2d631945a812607b23269d85721e0f370b8d3e7d29a874004;
 
@@ -67,7 +67,7 @@ contract GasComparisonTest is BaseTest {
         vm.etch(0x000000000000D01eA45F9eFD5c54f037Fa57Ea1a, mockCode);
 
         v1 = new WebAuthnValidator();
-        v2 = new WebAuthnValidatorV2();
+        v2 = new OneAuthValidator();
 
         // Derive V2 P-256 public keys from private key
         (_v2PubKeyX, _v2PubKeyY) = vm.publicKeyP256(P256_PRIV_KEY);
@@ -85,9 +85,9 @@ contract GasComparisonTest is BaseTest {
         // --- Install v2 with single credential (derived keys) ---
         uint16[] memory keyIds = new uint16[](1);
         keyIds[0] = 0;
-        WebAuthnValidatorV2.WebAuthnCredential[] memory v2Creds =
-            new WebAuthnValidatorV2.WebAuthnCredential[](1);
-        v2Creds[0] = WebAuthnValidatorV2.WebAuthnCredential({
+        OneAuthValidator.WebAuthnCredential[] memory v2Creds =
+            new OneAuthValidator.WebAuthnCredential[](1);
+        v2Creds[0] = OneAuthValidator.WebAuthnCredential({
             pubKeyX: bytes32(_v2PubKeyX),
             pubKeyY: bytes32(_v2PubKeyY)
         });

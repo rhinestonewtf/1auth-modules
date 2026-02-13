@@ -10,14 +10,14 @@ import { WebAuthn } from "solady/utils/WebAuthn.sol";
 import {
     MODULE_TYPE_STATELESS_VALIDATOR as TYPE_STATELESS_VALIDATOR
 } from "modulekit/module-bases/utils/ERC7579Constants.sol";
-import { WebAuthnRecoveryBase } from "./WebAuthnRecoveryBase.sol";
-import { IWebAuthnValidatorV2 } from "./IWebAuthnValidatorV2.sol";
+import { OneAuthRecoveryBase } from "./OneAuthRecoveryBase.sol";
+import { IOneAuthValidator } from "./IOneAuthValidator.sol";
 import { EIP712Lib } from "./lib/EIP712Lib.sol";
 import { P256Lib } from "./lib/P256Lib.sol";
 import { MAX_MERKLE_DEPTH, MAX_CREDENTIALS } from "./lib/Constants.sol";
 
 /**
- * @title WebAuthnValidatorV2
+ * @title OneAuthValidator
  * @notice ERC-7579 WebAuthn passkey validator module with merkle tree batch signing support
  * @dev The user signs a merkle root (tree of operation digests) with their passkey.
  *      Each operation provides a merkle proof showing its digest is a leaf in the tree.
@@ -40,7 +40,7 @@ import { MAX_MERKLE_DEPTH, MAX_CREDENTIALS } from "./lib/Constants.sol";
  *      the EIP-712 domain separator. The module must be deployed at the same address on all
  *      target chains (e.g., via CREATE2) for cross-chain signatures to verify.
  */
-contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase, IWebAuthnValidatorV2 {
+contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IOneAuthValidator {
     using EnumerableSetLib for EnumerableSetLib.Uint256Set;
     using EfficientHashLib for bytes32;
 
@@ -119,7 +119,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
         }
 
         // Guardian is optional -- address(0) means no guardian is configured.
-        // Guardian can be set or changed later via proposeGuardian() (inherited from WebAuthnRecoveryBase).
+        // Guardian can be set or changed later via proposeGuardian() (inherited from OneAuthRecoveryBase).
         if (_guardian != address(0)) {
             _setGuardianImmediate(account, _guardian);
         }
@@ -425,7 +425,7 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @dev Hook called by WebAuthnRecoveryBase during recovery (recoverWithPasskey or
+     * @dev Hook called by OneAuthRecoveryBase during recovery (recoverWithPasskey or
      *      recoverWithGuardian). When replace is false, delegates to _addCredential
      *      (additive). When replace is true, overwrites the existing credential at
      *      keyId in-place with the new public key (rotation).
@@ -742,13 +742,13 @@ contract WebAuthnValidatorV2 is ERC7579HybridValidatorBase, WebAuthnRecoveryBase
      * @notice ERC-7579 module name
      */
     function name() external pure virtual returns (string memory) {
-        return "WebAuthnValidatorV2";
+        return "OneAuthValidator";
     }
 
     /**
      * @notice ERC-7579 module version
      */
     function version() external pure virtual returns (string memory) {
-        return "2.0.0";
+        return "1.0.0";
     }
 }

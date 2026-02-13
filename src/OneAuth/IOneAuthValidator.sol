@@ -2,10 +2,10 @@
 pragma solidity ^0.8.28;
 
 /**
- * @title IWebAuthnValidatorV2
- * @notice Events and errors for the WebAuthnValidatorV2 module
+ * @title IOneAuthValidator
+ * @notice Events and errors for the OneAuthValidator module
  */
-interface IWebAuthnValidatorV2 {
+interface IOneAuthValidator {
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
