@@ -21,5 +21,10 @@ wrap_comments = true
 [fuzz]
 runs=1000
 
+[invariant]
+runs = 256
+depth = 128
+fail_on_revert = false
+
 [rpc_endpoints]
 mainnet = "https://mainnet.gateway.tenderly.co"
