@@ -79,7 +79,7 @@ export function getOneAuthValidatorMockSignature(): Hex {
 // Pre-computed mock signature constant (192 bytes).
 // clientDataJSON = {"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}
 const MOCK_SIGNATURE: Hex =
-  "0x" +
+  ("0x" +
   // proofLength (1 byte) + keyId (2 bytes)
   "00" + "0000" +
   // r (32 bytes)
@@ -98,6 +98,6 @@ const MOCK_SIGNATURE: Hex =
   // {"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}
   "7b2274797065223a22776562617574686e2e676574222c226368616c6c656e6765223a22" +
   "414141414141414141414141414141414141414141414141414141414141414141414141414141414141" +
-  "413d227d";
+  "413d227d") as Hex;
 
 export { MODULE_ADDRESS as ONEAUTH_VALIDATOR_ADDRESS };
