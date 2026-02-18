@@ -1,13 +1,46 @@
 {
-  "name": "@1auth/modules",
+  "name": "@rhinestone/1auth-modules",
   "version": "1.0.0",
-  "private": true,
+  "type": "module",
+  "main": "sdk/ts/dist/index.js",
+  "types": "sdk/ts/dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./sdk/ts/dist/index.d.ts",
+      "import": "./sdk/ts/dist/index.js"
+    },
+    "./rhinestone": {
+      "types": "./sdk/ts/dist/rhinestone.d.ts",
+      "import": "./sdk/ts/dist/rhinestone.js"
+    },
+    "./types": {
+      "types": "./sdk/ts/dist/types.d.ts",
+      "import": "./sdk/ts/dist/types.js"
+    },
+    "./wasm": {
+      "types": "./sdk/ts/dist/wasm/oneauth/oneauth.d.ts",
+      "import": "./sdk/ts/dist/wasm/oneauth/oneauth.js"
+    }
+  },
+  "files": [
+    "sdk/ts/dist/",
+    "sdk/ts/src/",
+    "artifacts/"
+  ],
   "scripts": {
-    "build": "forge build",
+    "build:sol": "forge build",
+    "build:wasm": "cd sdk/oneauth && wasm-pack build --target bundler --out-dir ../ts/src/wasm/oneauth && rm -f ../ts/src/wasm/oneauth/.gitignore",
+    "build:ts": "cd sdk/ts && npm run build:ts",
+    "build:copy-wasm": "cp -r sdk/ts/src/wasm sdk/ts/dist/wasm",
+    "build:sdk": "npm run build:wasm && npm run build:ts && npm run build:copy-wasm",
+    "build": "npm run build:sol && npm run build:sdk",
     "test": "forge test",
     "fmt": "forge fmt"
   },
-  "dependencies": {
+  "peerDependencies": {
+    "viem": "^2.38.0"
+  },
+  "devDependencies": {
     "@ERC4337/account-abstraction": "github:eth-infinitism/account-abstraction#v0.7.0",
     "@ERC4337/account-abstraction-v0.6": "github:eth-infinitism/account-abstraction#v0.6.0",
     "@erc7579/enumerablemap4337": "github:erc7579/enumerablemap",

@@ -8,7 +8,7 @@ use encoding_core::{IERC7579StatelessValidator, IERC7579Validator};
 use module::OneAuthValidator;
 use wasm_bindgen::prelude::*;
 
-const MODULE_ADDRESS: &str = "0x0000000000578c4cb0e472a5462da43c495c3f33";
+const MODULE_ADDRESS: &str = "0x6B8Fb8E8862a752913Ed5aDa5696be2C381437e5";
 const VALIDATOR: OneAuthValidator = OneAuthValidator;
 
 // ── onInstall / onUninstall ──

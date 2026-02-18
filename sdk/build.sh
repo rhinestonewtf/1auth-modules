@@ -11,6 +11,7 @@ echo "==> Building oneauth WASM with wasm-pack..."
 if command -v wasm-pack &> /dev/null; then
   cd oneauth
   wasm-pack build --target bundler --out-dir ../ts/src/wasm/oneauth
+  rm -f ../ts/src/wasm/oneauth/.gitignore
   cd ..
   echo "    WASM built to ts/src/wasm/oneauth/"
 else

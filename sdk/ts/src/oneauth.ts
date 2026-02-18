@@ -21,7 +21,7 @@ import {
   getRecoveryTypehash as wasmGetRecoveryTypehash,
 } from "./wasm/oneauth/oneauth.js";
 
-const MODULE_ADDRESS: Address = "0x0000000000578c4cb0e472a5462da43c495c3f33";
+const MODULE_ADDRESS: Address = "0x6B8Fb8E8862a752913Ed5aDa5696be2C381437e5";
 
 // ── EIP-712 typed data (from WASM) ──
 
