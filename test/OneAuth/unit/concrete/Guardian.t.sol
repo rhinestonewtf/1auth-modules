@@ -409,14 +409,14 @@ contract GuardianRecoveryIntegrationTest is Test {
         OneAuthValidator.WebAuthnCredential[] memory creds =
             new OneAuthValidator.WebAuthnCredential[](1);
         creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
-        validator.onInstall(abi.encode(keyIds, creds, address(guardianContract), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), address(guardianContract), uint48(0)));
     }
 
     function test_recoverWithGuardian_2of3() public {
         _installWithGuardian();
 
-        // Verify guardian is set
-        assertEq(validator.guardian(address(this)), address(guardianContract));
+        // Verify external guardian is set
+        assertEq(validator.externalGuardian(address(this)), address(guardianContract));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 0;
@@ -431,7 +431,9 @@ contract GuardianRecoveryIntegrationTest is Test {
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, nonce, expiry);
 
         // Guardians 0 and 2 sign the digest (2-of-3 threshold)
+        // Prepend 0x01 type byte for external guardian path
         bytes memory guardianSig = abi.encodePacked(
+            uint8(0x01),
             _signEntry(0, PK_0, digest),
             _signEntry(2, PK_2, digest)
         );
@@ -462,8 +464,9 @@ contract GuardianRecoveryIntegrationTest is Test {
 
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, nonce, expiry);
 
-        // Guardians 1 and 2 sign
+        // Guardians 1 and 2 sign — prepend 0x01 for external guardian
         bytes memory guardianSig = abi.encodePacked(
+            uint8(0x01),
             _signEntry(1, PK_1, digest),
             _signEntry(2, PK_2, digest)
         );
@@ -490,8 +493,8 @@ contract GuardianRecoveryIntegrationTest is Test {
 
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, 0, expiry);
 
-        // Only 1 signature — threshold is 2
-        bytes memory guardianSig = _signEntry(0, PK_0, digest);
+        // Only 1 signature — threshold is 2. Prepend 0x01 for external guardian.
+        bytes memory guardianSig = abi.encodePacked(uint8(0x01), _signEntry(0, PK_0, digest));
 
         vm.expectRevert(OneAuthRecoveryBase.InvalidGuardianSignature.selector);
         validator.recoverWithGuardian(address(this), block.chainid, cred, 0, expiry, guardianSig);
@@ -513,6 +516,7 @@ contract GuardianRecoveryIntegrationTest is Test {
         // Stranger signs with ID 1 instead of actual guardian1
         uint256 PK_STRANGER = 0xBAD;
         bytes memory guardianSig = abi.encodePacked(
+            uint8(0x01),
             _signEntry(0, PK_0, digest),
             _signEntry(1, PK_STRANGER, digest)
         );
@@ -562,6 +566,7 @@ contract GuardianRecoveryIntegrationTest is Test {
         bytes32 digest = validator.getRecoverDigest(address(this), 0, cred, 0, expiry);
 
         bytes memory guardianSig = abi.encodePacked(
+            uint8(0x01),
             _signEntry(0, PK_0, digest),
             _signEntry(1, PK_1, digest)
         );

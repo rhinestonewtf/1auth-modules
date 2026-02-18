@@ -17,14 +17,15 @@ sol! {
 type HexAddress = String;
 type HexU256 = String;
 
-/// Input for encoding onInstall data for WebAuthnValidatorV2.
-/// Matches: abi.encode(uint16[] keyIds, WebAuthnCredential[] creds, address guardian, uint48 guardianTimelock)
+/// Input for encoding onInstall data for OneAuthValidator.
+/// Matches: abi.encode(uint16[] keyIds, WebAuthnCredential[] creds, address userGuardian, address externalGuardian, uint48 guardianTimelock)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstallInput {
     pub key_ids: Vec<u16>,
     pub credentials: Vec<CredentialInput>,
-    pub guardian: Option<HexAddress>,
-    /// Guardian timelock duration in seconds. 0 or None means proposeGuardian takes effect immediately.
+    pub user_guardian: Option<HexAddress>,
+    pub external_guardian: Option<HexAddress>,
+    /// Guardian timelock duration in seconds. 0 or None means guardian changes take effect immediately.
     pub guardian_timelock: Option<u64>,
 }
 
@@ -60,16 +61,23 @@ pub fn encode_install(input: &InstallInput) -> Result<(String, Vec<u8>), String>
         })
         .collect::<Result<Vec<_>, String>>()?;
 
-    let guardian = if let Some(ref addr) = input.guardian {
+    let user_guardian = if let Some(ref addr) = input.user_guardian {
         alloy_primitives::Address::from_str(addr)
-            .map_err(|e| format!("invalid guardian address: {e}"))?
+            .map_err(|e| format!("invalid user_guardian address: {e}"))?
+    } else {
+        alloy_primitives::Address::ZERO
+    };
+
+    let external_guardian = if let Some(ref addr) = input.external_guardian {
+        alloy_primitives::Address::from_str(addr)
+            .map_err(|e| format!("invalid external_guardian address: {e}"))?
     } else {
         alloy_primitives::Address::ZERO
     };
 
     let guardian_timelock = U256::from(input.guardian_timelock.unwrap_or(0));
 
-    let encoded = (key_ids, creds, guardian, guardian_timelock).abi_encode_params();
+    let encoded = (key_ids, creds, user_guardian, external_guardian, guardian_timelock).abi_encode_params();
 
     let hex_str = format!("0x{}", hex::encode(&encoded));
     Ok((hex_str, encoded))
@@ -94,7 +102,8 @@ mod tests {
                 pub_key_y: "0x7d46f725a5427ae45a9569259bf67e1e16b187d7b3ad1ed70138c4f0409677d1"
                     .to_string(),
             }],
-            guardian: None,
+            user_guardian: None,
+            external_guardian: None,
             guardian_timelock: None,
         };
         let (hex_str, _raw) = encode_install(&input).unwrap();
@@ -120,7 +129,8 @@ mod tests {
                         .to_string(),
                 },
             ],
-            guardian: Some("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string()),
+            user_guardian: Some("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string()),
+            external_guardian: None,
             guardian_timelock: Some(86400), // 1 day
         };
         let (hex_str, _raw) = encode_install(&input).unwrap();
@@ -135,7 +145,8 @@ mod tests {
                 pub_key_x: "0x01".to_string(),
                 pub_key_y: "0x02".to_string(),
             }],
-            guardian: None,
+            user_guardian: None,
+            external_guardian: None,
             guardian_timelock: None,
         };
         assert!(encode_install(&input).is_err());

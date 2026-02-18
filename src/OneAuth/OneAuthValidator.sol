@@ -30,10 +30,11 @@ import { MAX_MERKLE_DEPTH, MAX_CREDENTIALS } from "./lib/Constants.sol";
  *      the credential at keyId has its public key overwritten in-place. When replace is
  *      false, recovery is additive (new credential added, existing keys remain).
  *
- *      Guardian timelock: Guardian changes support an optional timelock via proposeGuardian().
- *      When guardianTimelock is zero (the default), changes take effect immediately. When
- *      non-zero, changes are queued and must be confirmed via confirmGuardian() after the
- *      timelock elapses, giving the account owner time to detect and cancel malicious changes.
+ *      Guardian timelock: Guardian changes support an optional timelock via setUserGuardian()
+ *      and setExternalGuardian(). When guardianTimelock is zero (the default), changes take
+ *      effect immediately. When non-zero and a guardian of that type already exists, changes
+ *      are queued and must be confirmed via confirmGuardian() after the timelock elapses.
+ *      Initial guardian set (no existing guardian of that type) is always immediate.
  *
  *      Cross-chain merkle signing requires same contract address: _passkeyMultichain() uses
  *      _hashTypedDataSansChainId which omits chainId but still includes verifyingContract in
@@ -83,31 +84,24 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Install the module with initial credentials, optional guardian, and optional timelock
+     * @notice Install the module with initial credentials, optional guardians, and optional timelock
      * @dev Called by the smart account during module installation (ERC-7579 lifecycle).
      *      msg.sender is the smart account itself, not an EOA or external caller.
-     *      The data payload is ABI-encoded as parallel arrays plus guardian config:
-     *        - keyIds: 16-bit credential identifiers (must be unique)
-     *        - creds: P-256 public key coordinates, validated to be on the secp256r1 curve
-     *        - guardian: optional recovery guardian address (address(0) to skip)
-     *        - guardianTimelock: optional timelock duration in seconds for guardian changes (0 = immediate)
-     * @param data abi.encode(uint16[] keyIds, WebAuthnCredential[] creds, address guardian, uint48 guardianTimelock)
+     * @param data abi.encode(uint16[] keyIds, WebAuthnCredential[] creds, address userGuardian, address externalGuardian, uint48 guardianTimelock)
      */
     function onInstall(bytes calldata data) external override {
-        // msg.sender is the smart account (ERC-7579: the account calls onInstall during module setup)
         address account = msg.sender;
         if (isInitialized(account)) revert ModuleAlreadyInitialized(account);
 
-        // Decode the parallel arrays, optional guardian, and optional guardian timelock
         (
             uint16[] memory keyIds,
             WebAuthnCredential[] memory creds,
-            address _guardian,
+            address _userGuardian,
+            address _externalGuardian,
             uint48 _guardianTimelock
-        ) = abi.decode(data, (uint16[], WebAuthnCredential[], address, uint48));
+        ) = abi.decode(data, (uint16[], WebAuthnCredential[], address, address, uint48));
         uint256 length = creds.length;
 
-        // Both arrays must be non-empty and equal length
         if (length == 0 || length != keyIds.length) {
             revert InvalidPublicKey();
         }
@@ -118,13 +112,13 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
             _storeCredential(pc, account, keyIds[i], creds[i].pubKeyX, creds[i].pubKeyY);
         }
 
-        // Guardian is optional -- address(0) means no guardian is configured.
-        // Guardian can be set or changed later via proposeGuardian() (inherited from OneAuthRecoveryBase).
-        if (_guardian != address(0)) {
-            _setGuardianImmediate(account, _guardian);
+        if (_userGuardian != address(0)) {
+            _setUserGuardianImmediate(account, _userGuardian);
+        }
+        if (_externalGuardian != address(0)) {
+            _setExternalGuardianImmediate(account, _externalGuardian);
         }
 
-        // Guardian timelock is optional -- 0 means proposeGuardian takes effect immediately.
         if (_guardianTimelock != 0) {
             _recoveryConfig[account].guardianTimelock = _guardianTimelock;
             emit GuardianTimelockSet(account, _guardianTimelock);
@@ -157,11 +151,13 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
             pc.enabledCredKeys.remove(credKeys[i]);
         }
 
-        // Clear guardian + pending guardian + timelock state but leave nonceUsed intact to prevent replay after reinstallation
-        delete _recoveryConfig[account].guardian;
+        // Clear all guardian state but leave nonceUsed intact to prevent replay after reinstallation
+        delete _recoveryConfig[account].userGuardian;
+        delete _recoveryConfig[account].externalGuardian;
         delete _recoveryConfig[account].pendingGuardian;
         delete _recoveryConfig[account].guardianActivatesAt;
         delete _recoveryConfig[account].guardianTimelock;
+        delete _recoveryConfig[account].pendingIsExternal;
 
         emit ModuleUninitialized(account);
     }
