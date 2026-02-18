@@ -8,7 +8,8 @@ export interface CredentialInput {
 
 export interface InstallInput {
   credentials: CredentialInput[];
-  guardian?: Address;
+  userGuardian?: Address;
+  externalGuardian?: Address;
 }
 
 export interface DigestResult {
