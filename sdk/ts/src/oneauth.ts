@@ -70,7 +70,8 @@ export function encodeInstall(input: InstallInput): { address: Address; initData
       pub_key_x: c.pubKeyX,
       pub_key_y: c.pubKeyY,
     })),
-    guardian: input.guardian ?? "0x0000000000000000000000000000000000000000",
+    user_guardian: input.userGuardian ?? "0x0000000000000000000000000000000000000000",
+    external_guardian: input.externalGuardian ?? "0x0000000000000000000000000000000000000000",
   });
   const result = JSON.parse(wasmEncodeInstall(wasmInput));
   return { address: result.address as Address, initData: result.initData as Hex };

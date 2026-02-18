@@ -48,14 +48,15 @@ contract OneAuthValidatorIntegrationTest is BaseIntegrationTest {
             pubKeyY: _pubKeyY1
         });
 
-        address guardian = address(0);
+        address userGuardian_ = address(0);
+        address externalGuardian_ = address(0);
         uint48 guardianTimelock = 0;
 
         // Install the validator module on the account
         instance.installModule({
             moduleTypeId: MODULE_TYPE_VALIDATOR,
             module: address(validator),
-            data: abi.encode(keyIds, creds, guardian, guardianTimelock)
+            data: abi.encode(keyIds, creds, userGuardian_, externalGuardian_, guardianTimelock)
         });
     }
 
@@ -143,23 +144,23 @@ contract OneAuthValidatorIntegrationTest is BaseIntegrationTest {
         assertEq(pubKeyY, bytes32(0), "Removed credential pubKeyY should be zero");
     }
 
-    function test_ProposeGuardian_ViaAccount() public {
-        // It should propose a guardian
+    function test_SetUserGuardian_ViaAccount() public {
+        // It should set a user guardian
         address guardianAddress = address(0xBEEF);
 
         instance.getExecOps({
             target: address(validator),
             value: 0,
             callData: abi.encodeWithSelector(
-                bytes4(keccak256("proposeGuardian(address)")),
+                bytes4(keccak256("setUserGuardian(address)")),
                 guardianAddress
             ),
             txValidator: address(instance.defaultValidator)
         }).execUserOps();
 
         // Verify guardian was set (with zero timelock it should be immediate)
-        address setGuardian = validator.guardian(address(instance.account));
-        assertEq(setGuardian, guardianAddress, "Guardian should be set");
+        address setGuardian = validator.userGuardian(address(instance.account));
+        assertEq(setGuardian, guardianAddress, "User guardian should be set");
     }
 
     function test_ERC1271_FailWhen_NotInstalled() public {

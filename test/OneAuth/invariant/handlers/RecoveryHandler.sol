@@ -34,21 +34,25 @@ contract RecoveryHandler is Test {
     mapping(address => uint256) public ghost_nextNonce;
 
     // Ghost state — guardian
-    mapping(address => address) public ghost_guardian;
+    mapping(address => address) public ghost_userGuardian;
+    mapping(address => address) public ghost_externalGuardian;
     mapping(address => address) public ghost_pendingGuardian;
     mapping(address => uint48) public ghost_guardianActivatesAt;
     mapping(address => uint48) public ghost_guardianTimelock;
+    mapping(address => bool) public ghost_pendingIsExternal;
 
     /// @dev Called by CredentialHandler on uninstall to clear guardian ghost state
     function ghostClearGuardianState(address actor) external {
-        ghost_guardian[actor] = address(0);
+        ghost_userGuardian[actor] = address(0);
+        ghost_externalGuardian[actor] = address(0);
         ghost_pendingGuardian[actor] = address(0);
         ghost_guardianActivatesAt[actor] = 0;
         ghost_guardianTimelock[actor] = 0;
+        ghost_pendingIsExternal[actor] = false;
     }
 
     // Call counters
-    uint256 public ghost_proposeGuardianCalls;
+    uint256 public ghost_setUserGuardianCalls;
     uint256 public ghost_confirmGuardianCalls;
     uint256 public ghost_cancelGuardianCalls;
     uint256 public ghost_setTimelockCalls;
@@ -76,7 +80,7 @@ contract RecoveryHandler is Test {
         return seed % 2 == 0 ? address(mockGuardian1) : address(mockGuardian2);
     }
 
-    function handler_proposeGuardian(uint8 actorSeed, uint8 guardianSeed) external {
+    function handler_setUserGuardian(uint8 actorSeed, uint8 guardianSeed) external {
         address actor = _pickActor(actorSeed);
         if (!credHandler.ghost_isInstalled(actor)) return;
 
@@ -84,14 +88,15 @@ contract RecoveryHandler is Test {
         uint48 timelock = ghost_guardianTimelock[actor];
 
         vm.prank(actor);
-        try validator.proposeGuardian(newGuardian) {
-            if (timelock == 0) {
-                ghost_guardian[actor] = newGuardian;
+        try validator.setUserGuardian(newGuardian) {
+            if (timelock == 0 || ghost_userGuardian[actor] == address(0)) {
+                ghost_userGuardian[actor] = newGuardian;
             } else {
                 ghost_pendingGuardian[actor] = newGuardian;
+                ghost_pendingIsExternal[actor] = false;
                 ghost_guardianActivatesAt[actor] = uint48(block.timestamp) + timelock;
             }
-            ghost_proposeGuardianCalls++;
+            ghost_setUserGuardianCalls++;
         } catch { }
     }
 
@@ -103,9 +108,14 @@ contract RecoveryHandler is Test {
 
         vm.prank(actor);
         try validator.confirmGuardian() {
-            ghost_guardian[actor] = ghost_pendingGuardian[actor];
+            if (ghost_pendingIsExternal[actor]) {
+                ghost_externalGuardian[actor] = ghost_pendingGuardian[actor];
+            } else {
+                ghost_userGuardian[actor] = ghost_pendingGuardian[actor];
+            }
             ghost_pendingGuardian[actor] = address(0);
             ghost_guardianActivatesAt[actor] = 0;
+            ghost_pendingIsExternal[actor] = false;
             ghost_confirmGuardianCalls++;
         } catch { }
     }
@@ -118,6 +128,7 @@ contract RecoveryHandler is Test {
         try validator.cancelGuardianChange() {
             ghost_pendingGuardian[actor] = address(0);
             ghost_guardianActivatesAt[actor] = 0;
+            ghost_pendingIsExternal[actor] = false;
             ghost_cancelGuardianCalls++;
         } catch { }
     }
@@ -145,7 +156,7 @@ contract RecoveryHandler is Test {
     {
         address actor = _pickActor(actorSeed);
         if (!credHandler.ghost_isInstalled(actor)) return;
-        if (ghost_guardian[actor] == address(0)) return;
+        if (ghost_userGuardian[actor] == address(0)) return;
 
         uint256 nonce = ghost_nextNonce[actor]++;
         uint48 expiry = uint48(block.timestamp + 1 hours);
@@ -161,11 +172,12 @@ contract RecoveryHandler is Test {
 
         bytes32 digest = validator.getRecoverDigest(actor, block.chainid, cred, nonce, expiry);
 
-        // Pre-approve the digest on the correct guardian
-        InvariantMockGuardian g = InvariantMockGuardian(ghost_guardian[actor]);
+        // Pre-approve the digest on the correct user guardian
+        InvariantMockGuardian g = InvariantMockGuardian(ghost_userGuardian[actor]);
         g.approveDigest(digest);
 
-        try validator.recoverWithGuardian(actor, block.chainid, cred, nonce, expiry, "") {
+        // 0x00 type byte = user guardian
+        try validator.recoverWithGuardian(actor, block.chainid, cred, nonce, expiry, hex"00") {
             ghost_nonceUsed[actor][nonce] = true;
             // Update credential ghost state: replace keeps count, add increments
             if (!replace) {

@@ -62,7 +62,7 @@ contract OneAuthInvariantTest is Test {
         );
 
         bytes4[] memory recoverySelectors = new bytes4[](6);
-        recoverySelectors[0] = RecoveryHandler.handler_proposeGuardian.selector;
+        recoverySelectors[0] = RecoveryHandler.handler_setUserGuardian.selector;
         recoverySelectors[1] = RecoveryHandler.handler_confirmGuardian.selector;
         recoverySelectors[2] = RecoveryHandler.handler_cancelGuardianChange.selector;
         recoverySelectors[3] = RecoveryHandler.handler_setGuardianTimelock.selector;
@@ -158,9 +158,14 @@ contract OneAuthInvariantTest is Test {
             if (!credentialHandler.ghost_isInstalled(actor)) continue;
 
             assertEq(
-                recoveryHandler.ghost_guardian(actor),
-                validator.guardian(actor),
-                "Ghost guardian must match on-chain"
+                recoveryHandler.ghost_userGuardian(actor),
+                validator.userGuardian(actor),
+                "Ghost user guardian must match on-chain"
+            );
+            assertEq(
+                recoveryHandler.ghost_externalGuardian(actor),
+                validator.externalGuardian(actor),
+                "Ghost external guardian must match on-chain"
             );
         }
     }
