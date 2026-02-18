@@ -1,0 +1,17 @@
+{
+  "name": "oneauth",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "oneauth_bg.wasm",
+    "oneauth.js",
+    "oneauth_bg.js",
+    "oneauth.d.ts"
+  ],
+  "main": "oneauth.js",
+  "types": "oneauth.d.ts",
+  "sideEffects": [
+    "./oneauth.js",
+    "./snippets/*"
+  ]
+}
