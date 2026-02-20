@@ -159,13 +159,13 @@ contract OneAuthValidatorTest is BaseTest {
 
     /// @dev Create a valid WebAuthn signature at runtime using vm.signP256
     /// Uses AUTH_DATA_UV (with UV flag set) since the contract defaults to requireUV=true
-    function _createValidWebAuthnSig(bytes32 digest)
+    function _createValidWebAuthnSig(address account, bytes32 digest)
         internal
         view
         returns (uint256 r, uint256 s, string memory clientDataJSON)
     {
-        // The contract wraps the digest in EIP-712
-        bytes32 challenge = validator.getPasskeyDigest(digest);
+        // The contract wraps the digest in EIP-712 with account binding
+        bytes32 challenge = validator.getPasskeyDigest(account, digest);
         clientDataJSON = _buildClientDataJSON(challenge);
 
         // WebAuthn message = sha256(authenticatorData || sha256(clientDataJSON))
@@ -364,7 +364,7 @@ contract OneAuthValidatorTest is BaseTest {
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = address(this);
 
-        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(address(this), TEST_DIGEST);
         userOp.signature = _buildRegularSignature(0, r, s, AUTH_DATA_UV, clientDataJSON);
 
         uint256 validationData =
@@ -404,7 +404,7 @@ contract OneAuthValidatorTest is BaseTest {
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = address(this);
 
-        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(address(this), TEST_DIGEST);
         // Use keyId 10 which has pubKey0 (matches the test vectors)
         userOp.signature = _buildRegularSignature(10, r, s, AUTH_DATA_UV, clientDataJSON);
 
@@ -418,7 +418,7 @@ contract OneAuthValidatorTest is BaseTest {
     function test_IsValidSignatureWithSender_RegularSigning() public {
         _install1();
 
-        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(address(this), TEST_DIGEST);
         bytes memory sig = _buildRegularSignature(0, r, s, AUTH_DATA_UV, clientDataJSON);
 
         bytes4 result = validator.isValidSignatureWithSender(address(this), TEST_DIGEST, sig);
@@ -440,7 +440,7 @@ contract OneAuthValidatorTest is BaseTest {
     function test_ValidateUserOp_WithMerkleProof() public {
         _install1();
 
-        bytes32 leaf0 = TEST_DIGEST;
+        bytes32 leaf0 = keccak256(abi.encode(address(this), TEST_DIGEST));
         bytes32 leaf1 = bytes32(uint256(0xdead));
 
         bytes32 merkleRoot;
@@ -470,7 +470,7 @@ contract OneAuthValidatorTest is BaseTest {
     function test_ValidateUserOp_MerkleProof_FailWhen_InvalidProof() public {
         _install1();
 
-        bytes32 leaf0 = TEST_DIGEST;
+        bytes32 leaf0 = keccak256(abi.encode(address(this), TEST_DIGEST));
         bytes32 leaf1 = bytes32(uint256(0xdead));
 
         bytes32 merkleRoot;
@@ -502,7 +502,7 @@ contract OneAuthValidatorTest is BaseTest {
     function test_ValidateSignatureForAccount_RegularSigning() public {
         _install1(); // keyId 0
 
-        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(address(this), TEST_DIGEST);
         bytes memory sig = _buildRegularSignature(0, r, s, AUTH_DATA_UV, clientDataJSON);
 
         bool result = validator.validateSignatureForAccount(address(this), TEST_DIGEST, sig);
@@ -532,15 +532,18 @@ contract OneAuthValidatorTest is BaseTest {
     //////////////////////////////////////////////////////////////////////////*/
 
     function test_ValidateSignatureWithData_RegularSigning() public view {
-        // proofLength=0: regular signing, challenge = _passkeyDigest(hash)
+        // proofLength=0: regular signing, challenge = _passkeyDigest(account, hash)
+        // Data layout: [account:20][proofLength:1][pubKeyX:32][pubKeyY:32]
+        address account = address(this);
         bytes memory data = abi.encodePacked(
-            uint8(0), // proofLength = 0
+            account,   // 20 bytes: account bound into challenge
+            uint8(0),  // proofLength = 0
             _pubKeyX0,
             _pubKeyY0
         );
 
-        // Compute the EIP-712 challenge
-        bytes32 challenge = validator.getPasskeyDigest(TEST_DIGEST);
+        // Compute the EIP-712 challenge (includes account)
+        bytes32 challenge = validator.getPasskeyDigest(account, TEST_DIGEST);
         string memory clientDataJSON = _buildClientDataJSON(challenge);
 
         // Sign the WebAuthn message
@@ -568,6 +571,7 @@ contract OneAuthValidatorTest is BaseTest {
 
     function test_ValidateSignatureWithData_FailWhen_ProofTooLong() public {
         bytes memory data = abi.encodePacked(
+            address(this), // account prefix
             uint8(33), // proofLength = 33 > MAX_MERKLE_DEPTH
             bytes32(0), // merkleRoot placeholder
             _pubKeyX0,
@@ -583,6 +587,7 @@ contract OneAuthValidatorTest is BaseTest {
 
         // proofLength=1 but wrong proof — layout matches stateful: proof before credential
         bytes memory data = abi.encodePacked(
+            address(this), // account prefix
             uint8(1), // proofLength
             fakeRoot, // merkleRoot
             bytes32(uint256(0xbad)), // wrong proof element
@@ -629,9 +634,9 @@ contract OneAuthValidatorTest is BaseTest {
     //////////////////////////////////////////////////////////////////////////*/
 
     function test_GetPasskeyDigest_MatchesEIP712() public view {
-        bytes32 typehash = keccak256("PasskeyDigest(bytes32 digest)");
+        bytes32 typehash = keccak256("PasskeyDigest(address account,bytes32 digest)");
 
-        bytes32 structHash = keccak256(abi.encode(typehash, TEST_DIGEST));
+        bytes32 structHash = keccak256(abi.encode(typehash, uint256(uint160(address(this))), TEST_DIGEST));
 
         bytes32 domainSep = keccak256(
             abi.encode(
@@ -644,15 +649,15 @@ contract OneAuthValidatorTest is BaseTest {
         );
 
         bytes32 expected = keccak256(abi.encodePacked("\x19\x01", domainSep, structHash));
-        bytes32 actual = validator.getPasskeyDigest(TEST_DIGEST);
+        bytes32 actual = validator.getPasskeyDigest(address(this), TEST_DIGEST);
         assertEq(actual, expected, "PasskeyDigest should match manual EIP-712 computation");
     }
 
     function test_GetPasskeyDigest_ChainSpecific() public {
-        bytes32 digest1 = validator.getPasskeyDigest(TEST_DIGEST);
+        bytes32 digest1 = validator.getPasskeyDigest(address(this), TEST_DIGEST);
 
         vm.chainId(999);
-        bytes32 digest2 = validator.getPasskeyDigest(TEST_DIGEST);
+        bytes32 digest2 = validator.getPasskeyDigest(address(this), TEST_DIGEST);
 
         assertTrue(digest1 != digest2, "Different chainIds should produce different digests");
     }
@@ -687,9 +692,23 @@ contract OneAuthValidatorTest is BaseTest {
     }
 
     function test_GetPasskeyDigest_DifferentDigests() public view {
-        bytes32 d1 = validator.getPasskeyDigest(TEST_DIGEST);
-        bytes32 d2 = validator.getPasskeyDigest(bytes32(uint256(0xdead)));
+        bytes32 d1 = validator.getPasskeyDigest(address(this), TEST_DIGEST);
+        bytes32 d2 = validator.getPasskeyDigest(address(this), bytes32(uint256(0xdead)));
         assertTrue(d1 != d2, "Different input digests should produce different passkey digests");
+    }
+
+    function test_GetPasskeyDigest_DifferentAccounts() public view {
+        bytes32 d1 = validator.getPasskeyDigest(address(this), TEST_DIGEST);
+        bytes32 d2 = validator.getPasskeyDigest(address(0xdead), TEST_DIGEST);
+        assertTrue(d1 != d2, "Same digest with different accounts should produce different challenges");
+    }
+
+    function test_GetAccountLeaf() public view {
+        address account = address(0xAA);
+        bytes32 digest = bytes32(uint256(0x1234));
+        bytes32 expected = keccak256(abi.encode(account, digest));
+        bytes32 actual = validator.getAccountLeaf(account, digest);
+        assertEq(actual, expected, "getAccountLeaf should match keccak256(abi.encode(account, digest))");
     }
 
     /*//////////////////////////////////////////////////////////////////////////

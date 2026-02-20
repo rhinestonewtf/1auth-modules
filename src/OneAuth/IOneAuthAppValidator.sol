@@ -7,6 +7,15 @@ pragma solidity ^0.8.28;
  */
 interface IOneAuthAppValidator {
     /*//////////////////////////////////////////////////////////////
+                                 STRUCTS
+    //////////////////////////////////////////////////////////////*/
+
+    struct TokenAmount {
+        address token;
+        uint256 amount;
+    }
+
+    /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
@@ -27,6 +36,8 @@ interface IOneAuthAppValidator {
     error InvalidMainValidator();
     /// @notice Thrown when onInstall receives address(0) as the main account
     error InvalidMainAccount();
+    /// @notice Thrown when msg.sender is not the main account for the given app account
+    error OnlyMainAccount();
 
     // NOTE: ModuleAlreadyInitialized(address) and NotInitialized(address) are inherited from IERC7579Module
 }

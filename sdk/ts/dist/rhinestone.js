@@ -1,4 +1,4 @@
-import { encodeInstall, encodeSignature, MODULE_ADDRESS } from "./oneauth.js";
+import { encodeInstall, encodeAppInstall, encodeSignature, MODULE_ADDRESS, APP_MODULE_ADDRESS } from "./oneauth.js";
 /**
  * Create a Rhinestone-compatible Module object for OneAuthValidator.
  *
@@ -72,4 +72,38 @@ const MOCK_SIGNATURE = ("0x" +
     "7b2274797065223a22776562617574686e2e676574222c226368616c6c656e6765223a22" +
     "414141414141414141414141414141414141414141414141414141414141414141414141414141414141" +
     "413d227d");
+/**
+ * Create a Rhinestone-compatible Module object for OneAuthAppValidator.
+ *
+ * NOTE: When computing digests for signing, use the **main validator's address**
+ * (not the app validator's), since the EIP-712 domain uses verifyingContract = mainValidator.
+ *
+ * Usage with permissionless.js:
+ * ```ts
+ * const module = getOneAuthAppValidator({
+ *   mainAccount: "0xMainAccountAddress",
+ * });
+ * const hash = await smartAccountClient.installModule(module);
+ * ```
+ */
+export function getOneAuthAppValidator(input) {
+    const { address, initData } = encodeAppInstall(input);
+    return {
+        address,
+        module: address,
+        initData,
+        deInitData: "0x",
+        additionalContext: "0x",
+        type: "validator",
+        ...(input.hook ? { hook: input.hook } : {}),
+    };
+}
+/**
+ * Mock signature for gas estimation with OneAuthAppValidator.
+ * Same format as the main validator since it uses the same signature format.
+ */
+export function getOneAuthAppValidatorMockSignature() {
+    return MOCK_SIGNATURE;
+}
 export { MODULE_ADDRESS as ONEAUTH_VALIDATOR_ADDRESS };
+export { APP_MODULE_ADDRESS as ONEAUTH_APP_VALIDATOR_ADDRESS };

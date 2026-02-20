@@ -273,6 +273,35 @@ export function encodeStatelessData(config_json) {
 }
 
 /**
+ * Compute the account-bound merkle leaf: keccak256(abi.encode(account, digest)).
+ * @param {string} account_hex
+ * @param {string} digest_hex
+ * @returns {string}
+ */
+export function getAccountLeaf(account_hex, digest_hex) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(account_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(digest_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.getAccountLeaf(ptr0, len0, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
  * @param {string} input_json
  * @returns {string}
  */
@@ -315,23 +344,58 @@ export function getAppRecoveryTypehash() {
 
 /**
  * Prepare digest(s) with EIP-712 challenge wrapping.
+ * account_hex: the smart account address bound into the challenge
  * digests_json: JSON array of hex bytes32 strings
  * chain_id: chain ID for single-digest (PasskeyDigest) path
  * verifying_contract_hex: deployed OneAuthValidator address
+ * @param {string} account_hex
  * @param {string} digests_json
  * @param {bigint} chain_id
  * @param {string} verifying_contract_hex
  * @returns {string}
  */
-export function getDigest(digests_json, chain_id, verifying_contract_hex) {
+export function getDigest(account_hex, digests_json, chain_id, verifying_contract_hex) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(account_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(digests_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(verifying_contract_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.getDigest(ptr0, len0, ptr1, len1, chain_id, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
+ * Build a multi-account merkle tree for signing across multiple accounts with one passkey signature.
+ * entries_json: JSON array of { account: "0x...", digest: "0x..." }
+ * verifying_contract_hex: deployed OneAuthValidator address
+ * @param {string} entries_json
+ * @param {string} verifying_contract_hex
+ * @returns {string}
+ */
+export function getMultiAccountDigest(entries_json, verifying_contract_hex) {
     let deferred4_0;
     let deferred4_1;
     try {
-        const ptr0 = passStringToWasm0(digests_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const ptr0 = passStringToWasm0(entries_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         const ptr1 = passStringToWasm0(verifying_contract_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.getDigest(ptr0, len0, chain_id, ptr1, len1);
+        const ret = wasm.getMultiAccountDigest(ptr0, len0, ptr1, len1);
         var ptr3 = ret[0];
         var len3 = ret[1];
         if (ret[3]) {
@@ -349,25 +413,28 @@ export function getDigest(digests_json, chain_id, verifying_contract_hex) {
 /**
  * Returns a viem-compatible EIP-712 typed data object for PasskeyDigest.
  * Pass the result to viem's hashTypedData() or signTypedData().
+ * @param {string} account_hex
  * @param {string} digest_hex
  * @param {bigint} chain_id
  * @param {string} verifying_contract_hex
  * @returns {string}
  */
-export function getPasskeyDigestTypedData(digest_hex, chain_id, verifying_contract_hex) {
-    let deferred3_0;
-    let deferred3_1;
+export function getPasskeyDigestTypedData(account_hex, digest_hex, chain_id, verifying_contract_hex) {
+    let deferred4_0;
+    let deferred4_1;
     try {
-        const ptr0 = passStringToWasm0(digest_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const ptr0 = passStringToWasm0(account_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(verifying_contract_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const ptr1 = passStringToWasm0(digest_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.getPasskeyDigestTypedData(ptr0, len0, chain_id, ptr1, len1);
-        deferred3_0 = ret[0];
-        deferred3_1 = ret[1];
+        const ptr2 = passStringToWasm0(verifying_contract_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.getPasskeyDigestTypedData(ptr0, len0, ptr1, len1, chain_id, ptr2, len2);
+        deferred4_0 = ret[0];
+        deferred4_1 = ret[1];
         return getStringFromWasm0(ret[0], ret[1]);
     } finally {
-        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
     }
 }
 
@@ -437,32 +504,35 @@ export function getRecoveryTypehash() {
 }
 
 /**
- * Compute PasskeyDigest challenge (single op, chain-specific).
+ * Compute PasskeyDigest challenge (single op, chain-specific, account-bound).
+ * @param {string} account_hex
  * @param {string} digest_hex
  * @param {bigint} chain_id
  * @param {string} verifying_contract_hex
  * @returns {string}
  */
-export function passkeyDigest(digest_hex, chain_id, verifying_contract_hex) {
-    let deferred4_0;
-    let deferred4_1;
+export function passkeyDigest(account_hex, digest_hex, chain_id, verifying_contract_hex) {
+    let deferred5_0;
+    let deferred5_1;
     try {
-        const ptr0 = passStringToWasm0(digest_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const ptr0 = passStringToWasm0(account_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(verifying_contract_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const ptr1 = passStringToWasm0(digest_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.passkeyDigest(ptr0, len0, chain_id, ptr1, len1);
-        var ptr3 = ret[0];
-        var len3 = ret[1];
+        const ptr2 = passStringToWasm0(verifying_contract_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.passkeyDigest(ptr0, len0, ptr1, len1, chain_id, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
         if (ret[3]) {
-            ptr3 = 0; len3 = 0;
+            ptr4 = 0; len4 = 0;
             throw takeFromExternrefTable0(ret[2]);
         }
-        deferred4_0 = ptr3;
-        deferred4_1 = len3;
-        return getStringFromWasm0(ptr3, len3);
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
     } finally {
-        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
     }
 }
 

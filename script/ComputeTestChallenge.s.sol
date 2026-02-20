@@ -24,7 +24,8 @@ contract ComputeTestChallenge is Script {
         console2.log("");
 
         // PasskeyDigest (regular signing, chain-specific)
-        bytes32 passkeyDigest = validator.getPasskeyDigest(TEST_DIGEST);
+        address TEST_ACCOUNT = address(1);
+        bytes32 passkeyDigest = validator.getPasskeyDigest(TEST_ACCOUNT, TEST_DIGEST);
         console2.log("--- PasskeyDigest (regular signing) ---");
         console2.log("Input TEST_DIGEST:");
         console2.logBytes32(TEST_DIGEST);

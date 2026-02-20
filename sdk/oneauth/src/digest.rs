@@ -8,10 +8,11 @@ type HexU256 = String;
 
 // ── EIP-712 typehashes (matching OneAuthValidator.sol) ──
 
-/// keccak256("PasskeyDigest(bytes32 digest)")
+/// keccak256("PasskeyDigest(address account,bytes32 digest)")
 /// Used for chain-specific single operation signing.
+/// Account is bound into the struct to prevent cross-account replay.
 pub fn passkey_digest_typehash() -> [u8; 32] {
-    keccak256(b"PasskeyDigest(bytes32 digest)")
+    keccak256(b"PasskeyDigest(address account,bytes32 digest)")
 }
 
 /// keccak256("PasskeyMultichain(bytes32 root)")
@@ -73,19 +74,22 @@ pub fn domain_separator_sans_chain_id(verifying_contract: &[u8; 20]) -> [u8; 32]
 // ── Challenge wrapping (matching _passkeyDigest / _passkeyMultichain) ──
 
 /// Compute the EIP-712 wrapped challenge for single operation signing.
-/// Matches `_passkeyDigest(digest)` in the contract.
-/// Returns: keccak256("\x19\x01" ++ domainSep(chainId, contract) ++ keccak256(abi.encode(PASSKEY_DIGEST_TYPEHASH, digest)))
+/// Matches `_passkeyDigest(account, digest)` in the contract.
+/// Returns: keccak256("\x19\x01" ++ domainSep(chainId, contract) ++ keccak256(abi.encode(PASSKEY_DIGEST_TYPEHASH, account, digest)))
 pub fn passkey_digest(
+    account: &[u8; 20],
     digest: &[u8; 32],
     chain_id: u64,
     verifying_contract: &[u8; 20],
 ) -> [u8; 32] {
     let domain_sep = domain_separator(chain_id, verifying_contract);
 
-    // structHash = keccak256(abi.encode(typehash, digest))
-    let mut struct_buf = [0u8; 64];
+    // structHash = keccak256(abi.encode(typehash, account, digest))
+    let mut struct_buf = [0u8; 96];
     struct_buf[..32].copy_from_slice(&passkey_digest_typehash());
-    struct_buf[32..].copy_from_slice(digest);
+    // account left-padded to 32 bytes
+    struct_buf[44..64].copy_from_slice(account);
+    struct_buf[64..].copy_from_slice(digest);
     let struct_hash = keccak256(&struct_buf);
 
     // EIP-712 encode
@@ -94,6 +98,16 @@ pub fn passkey_digest(
     buf.extend_from_slice(&domain_sep);
     buf.extend_from_slice(&struct_hash);
 
+    keccak256(&buf)
+}
+
+/// Compute the account-bound merkle leaf: keccak256(abi.encode(account, digest)).
+/// Used in merkle paths to bind each leaf to a specific account.
+pub fn account_leaf(account: &[u8; 20], digest: &[u8; 32]) -> [u8; 32] {
+    let mut buf = [0u8; 64];
+    // account left-padded to 32 bytes
+    buf[12..32].copy_from_slice(account);
+    buf[32..64].copy_from_slice(digest);
     keccak256(&buf)
 }
 
@@ -126,6 +140,7 @@ const DOMAIN_VERSION_STR: &str = "1.0.0";
 /// Build a viem-compatible EIP-712 typed data object for PasskeyDigest.
 /// Chain-specific: domain includes chainId + verifyingContract.
 pub fn passkey_digest_typed_data(
+    account_hex: &str,
     digest_hex: &str,
     chain_id: u64,
     verifying_contract_hex: &str,
@@ -139,11 +154,13 @@ pub fn passkey_digest_typed_data(
         },
         "types": {
             "PasskeyDigest": [
+                { "name": "account", "type": "address" },
                 { "name": "digest", "type": "bytes32" }
             ]
         },
         "primaryType": "PasskeyDigest",
         "message": {
+            "account": account_hex,
             "digest": digest_hex
         }
     })
@@ -194,11 +211,12 @@ pub struct MerkleProofEntry {
 
 /// Prepare digest(s) for signing with EIP-712 challenge wrapping.
 ///
-/// - Single digest → wraps with PasskeyDigest EIP-712 (chain-specific).
-/// - Multiple digests → builds merkle tree, wraps root with PasskeyMultichain (chain-agnostic).
+/// - Single digest → wraps with PasskeyDigest EIP-712 (chain-specific, account-bound).
+/// - Multiple digests → builds merkle tree with account-bound leaves, wraps root with PasskeyMultichain (chain-agnostic).
 ///
 /// Returns the challenge the user's passkey should actually sign.
 pub fn get_digest(
+    account: &[u8; 20],
     digests: &[[u8; 32]],
     chain_id: u64,
     verifying_contract: &[u8; 20],
@@ -208,7 +226,7 @@ pub fn get_digest(
     }
 
     if digests.len() == 1 {
-        let challenge = passkey_digest(&digests[0], chain_id, verifying_contract);
+        let challenge = passkey_digest(account, &digests[0], chain_id, verifying_contract);
         return Ok(DigestResult {
             challenge: format!("0x{}", hex::encode(challenge)),
             raw: format!("0x{}", hex::encode(digests[0])),
@@ -217,12 +235,13 @@ pub fn get_digest(
         });
     }
 
-    // Merkle path
-    let tree = MerkleTree::new(digests.to_vec());
+    // Merkle path — leaves are account-bound
+    let leaves: Vec<[u8; 32]> = digests.iter().map(|d| account_leaf(account, d)).collect();
+    let tree = MerkleTree::new(leaves.clone());
     let (root, proofs) = tree.build()?;
     let challenge = passkey_multichain(&root, verifying_contract);
 
-    let merkle_proofs: Vec<MerkleProofEntry> = digests
+    let merkle_proofs: Vec<MerkleProofEntry> = leaves
         .iter()
         .enumerate()
         .map(|(i, leaf)| MerkleProofEntry {
@@ -241,6 +260,98 @@ pub fn get_digest(
         proofs: Some(merkle_proofs),
         is_merkle: true,
     })
+}
+
+// ── Multi-account digest ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountDigestEntry {
+    pub account: HexAddress,
+    pub digest: HexBytes32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiAccountDigestResult {
+    /// The PasskeyMultichain challenge to sign.
+    pub challenge: HexBytes32,
+    /// The merkle root.
+    pub root: HexBytes32,
+    /// Per-entry proof data.
+    pub entries: Vec<MultiAccountProofEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiAccountProofEntry {
+    pub account: HexAddress,
+    pub digest: HexBytes32,
+    pub leaf: HexBytes32,
+    pub proof: Vec<HexBytes32>,
+    pub index: usize,
+}
+
+/// Build a multi-account merkle tree where each leaf is account-bound.
+/// A single passkey signature over the resulting challenge authorizes operations
+/// across multiple accounts (main + N app accounts).
+pub fn get_multi_account_digest(
+    entries: &[AccountDigestEntry],
+    verifying_contract: &[u8; 20],
+) -> Result<MultiAccountDigestResult, String> {
+    if entries.is_empty() {
+        return Err("at least one entry required".to_string());
+    }
+    if entries.len() == 1 {
+        return Err("use get_digest for single-account operations".to_string());
+    }
+
+    let parsed: Vec<([u8; 20], [u8; 32])> = entries
+        .iter()
+        .map(|e| {
+            let account = parse_address_raw(&e.account)?;
+            let digest = parse_bytes32_internal(&e.digest)?;
+            Ok((account, digest))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    let leaves: Vec<[u8; 32]> = parsed
+        .iter()
+        .map(|(account, digest)| account_leaf(account, digest))
+        .collect();
+
+    let tree = MerkleTree::new(leaves.clone());
+    let (root, proofs) = tree.build()?;
+    let challenge = passkey_multichain(&root, verifying_contract);
+
+    let result_entries: Vec<MultiAccountProofEntry> = entries
+        .iter()
+        .enumerate()
+        .map(|(i, entry)| MultiAccountProofEntry {
+            account: entry.account.clone(),
+            digest: entry.digest.clone(),
+            leaf: format!("0x{}", hex::encode(leaves[i])),
+            proof: proofs[i]
+                .iter()
+                .map(|p| format!("0x{}", hex::encode(p)))
+                .collect(),
+            index: i,
+        })
+        .collect();
+
+    Ok(MultiAccountDigestResult {
+        challenge: format!("0x{}", hex::encode(challenge)),
+        root: format!("0x{}", hex::encode(root)),
+        entries: result_entries,
+    })
+}
+
+fn parse_bytes32_internal(val: &str) -> Result<[u8; 32], String> {
+    let s = val.strip_prefix("0x").unwrap_or(val);
+    let bytes = hex::decode(s).map_err(|e| format!("invalid hex: {e}"))?;
+    if bytes.len() != 32 {
+        return Err(format!("expected 32 bytes, got {}", bytes.len()));
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    Ok(out)
 }
 
 // ── Recovery EIP-712 ──
@@ -422,6 +533,11 @@ mod tests {
         0xa4, 0x3c, 0x49, 0x5c, 0x3f, 0x33,
     ];
 
+    const TEST_ACCOUNT: [u8; 20] = [
+        0xd8, 0xdA, 0x6B, 0xF2, 0x69, 0x64, 0xaF, 0x9D, 0x7e, 0xEd, 0x9e, 0x03, 0xE5, 0x34,
+        0x15, 0xD3, 0x7a, 0xA9, 0x60, 0x45,
+    ];
+
     #[test]
     fn passkey_digest_typehash_matches() {
         let h = passkey_digest_typehash();
@@ -441,7 +557,7 @@ mod tests {
     #[test]
     fn single_digest_wraps_with_passkey_digest() {
         let digest = keccak256(b"test_op");
-        let result = get_digest(&[digest], 1, &TEST_CONTRACT).unwrap();
+        let result = get_digest(&TEST_ACCOUNT, &[digest], 1, &TEST_CONTRACT).unwrap();
         assert!(!result.is_merkle);
         assert!(result.proofs.is_none());
         // challenge != raw (because of EIP-712 wrapping)
@@ -456,7 +572,7 @@ mod tests {
         let d2 = keccak256(b"op2");
         let d3 = keccak256(b"op3");
 
-        let result = get_digest(&[d1, d2, d3], 1, &TEST_CONTRACT).unwrap();
+        let result = get_digest(&TEST_ACCOUNT, &[d1, d2, d3], 1, &TEST_CONTRACT).unwrap();
         assert!(result.is_merkle);
         let proofs = result.proofs.unwrap();
         assert_eq!(proofs.len(), 3);
@@ -466,14 +582,15 @@ mod tests {
         // challenge is EIP-712 wrapped
         assert_ne!(result.challenge, result.raw);
 
-        // Verify each merkle proof against the raw root
-        for (i, leaf) in [d1, d2, d3].iter().enumerate() {
+        // Verify each merkle proof — leaves are now account-bound
+        for (i, d) in [d1, d2, d3].iter().enumerate() {
+            let leaf = account_leaf(&TEST_ACCOUNT, d);
             let proof: Vec<[u8; 32]> = proofs[i]
                 .proof
                 .iter()
                 .map(|p| parse_bytes32(p).unwrap())
                 .collect();
-            assert!(MerkleTree::verify(&proof, &root, leaf));
+            assert!(MerkleTree::verify(&proof, &root, &leaf));
         }
     }
 
@@ -482,8 +599,8 @@ mod tests {
         let d1 = keccak256(b"op1");
         let d2 = keccak256(b"op2");
 
-        let r1 = get_digest(&[d1, d2], 1, &TEST_CONTRACT).unwrap();
-        let r2 = get_digest(&[d1, d2], 137, &TEST_CONTRACT).unwrap();
+        let r1 = get_digest(&TEST_ACCOUNT, &[d1, d2], 1, &TEST_CONTRACT).unwrap();
+        let r2 = get_digest(&TEST_ACCOUNT, &[d1, d2], 137, &TEST_CONTRACT).unwrap();
 
         // Merkle challenge should be same regardless of chainId (uses sansChainId domain)
         assert_eq!(r1.challenge, r2.challenge);
@@ -493,26 +610,97 @@ mod tests {
     fn single_digest_is_chain_specific() {
         let digest = keccak256(b"test_op");
 
-        let r1 = get_digest(&[digest], 1, &TEST_CONTRACT).unwrap();
-        let r2 = get_digest(&[digest], 137, &TEST_CONTRACT).unwrap();
+        let r1 = get_digest(&TEST_ACCOUNT, &[digest], 1, &TEST_CONTRACT).unwrap();
+        let r2 = get_digest(&TEST_ACCOUNT, &[digest], 137, &TEST_CONTRACT).unwrap();
 
         // Single challenge should differ per chain
         assert_ne!(r1.challenge, r2.challenge);
     }
 
     #[test]
+    fn different_accounts_different_challenges() {
+        let digest = keccak256(b"test_op");
+        let account2: [u8; 20] = [0x01; 20];
+
+        let r1 = get_digest(&TEST_ACCOUNT, &[digest], 1, &TEST_CONTRACT).unwrap();
+        let r2 = get_digest(&account2, &[digest], 1, &TEST_CONTRACT).unwrap();
+
+        // Same digest, different accounts → different challenges
+        assert_ne!(r1.challenge, r2.challenge);
+    }
+
+    #[test]
+    fn account_leaf_deterministic() {
+        let digest = keccak256(b"test_op");
+        let leaf1 = account_leaf(&TEST_ACCOUNT, &digest);
+        let leaf2 = account_leaf(&TEST_ACCOUNT, &digest);
+        assert_eq!(leaf1, leaf2);
+        assert_ne!(leaf1, [0u8; 32]);
+
+        // Different account → different leaf
+        let account2: [u8; 20] = [0x01; 20];
+        let leaf3 = account_leaf(&account2, &digest);
+        assert_ne!(leaf1, leaf3);
+    }
+
+    #[test]
+    fn multi_account_digest_builds_tree() {
+        let entries = vec![
+            AccountDigestEntry {
+                account: format!("0x{}", hex::encode(TEST_ACCOUNT)),
+                digest: format!("0x{}", hex::encode(keccak256(b"op1"))),
+            },
+            AccountDigestEntry {
+                account: "0x0000000000000000000000000000000000000001".to_string(),
+                digest: format!("0x{}", hex::encode(keccak256(b"op2"))),
+            },
+        ];
+
+        let result = get_multi_account_digest(&entries, &TEST_CONTRACT).unwrap();
+        assert_eq!(result.entries.len(), 2);
+
+        // Verify each entry's leaf matches account_leaf computation
+        let leaf0 = account_leaf(&TEST_ACCOUNT, &keccak256(b"op1"));
+        assert_eq!(result.entries[0].leaf, format!("0x{}", hex::encode(leaf0)));
+
+        let account2: [u8; 20] = {
+            let mut a = [0u8; 20];
+            a[19] = 1;
+            a
+        };
+        let leaf1 = account_leaf(&account2, &keccak256(b"op2"));
+        assert_eq!(result.entries[1].leaf, format!("0x{}", hex::encode(leaf1)));
+
+        // Verify merkle proofs
+        let root = parse_bytes32(&result.root).unwrap();
+        for entry in &result.entries {
+            let leaf = parse_bytes32(&entry.leaf).unwrap();
+            let proof: Vec<[u8; 32]> = entry
+                .proof
+                .iter()
+                .map(|p| parse_bytes32(p).unwrap())
+                .collect();
+            assert!(MerkleTree::verify(&proof, &root, &leaf));
+        }
+    }
+
+    #[test]
     fn typed_data_passkey_digest_has_correct_shape() {
+        let account_hex = format!("0x{}", hex::encode(TEST_ACCOUNT));
         let digest_hex = format!("0x{}", hex::encode(keccak256(b"test_op")));
         let contract_hex = format!("0x{}", hex::encode(TEST_CONTRACT));
-        let td = passkey_digest_typed_data(&digest_hex, 1, &contract_hex);
+        let td = passkey_digest_typed_data(&account_hex, &digest_hex, 1, &contract_hex);
 
         assert_eq!(td["domain"]["name"], "OneAuthValidator");
         assert_eq!(td["domain"]["version"], "1.0.0");
         assert_eq!(td["domain"]["chainId"], 1);
         assert_eq!(td["domain"]["verifyingContract"], contract_hex);
         assert_eq!(td["primaryType"], "PasskeyDigest");
-        assert_eq!(td["types"]["PasskeyDigest"][0]["name"], "digest");
-        assert_eq!(td["types"]["PasskeyDigest"][0]["type"], "bytes32");
+        assert_eq!(td["types"]["PasskeyDigest"][0]["name"], "account");
+        assert_eq!(td["types"]["PasskeyDigest"][0]["type"], "address");
+        assert_eq!(td["types"]["PasskeyDigest"][1]["name"], "digest");
+        assert_eq!(td["types"]["PasskeyDigest"][1]["type"], "bytes32");
+        assert_eq!(td["message"]["account"], account_hex);
         assert_eq!(td["message"]["digest"], digest_hex);
     }
 

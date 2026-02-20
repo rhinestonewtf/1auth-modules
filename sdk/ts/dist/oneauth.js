@@ -60,12 +60,12 @@
  * import { getDigest, encodeSignature, encodeSignatureFromDigest } from "@rhinestone/1auth-modules";
  *
  * // Single chain operation:
- * const { challenge, typedData } = getDigest([userOpTypedData], chainId);
+ * const { challenge, typedData } = getDigest(accountAddress, [userOpTypedData], chainId);
  * const webauthnAuth = await passkey.sign(challenge); // WebAuthn assertion
  * const signature = encodeSignature({ keyId: 0 }, webauthnAuth);
  *
  * // Multichain (batch) operations — signs all at once via merkle tree:
- * const result = getDigest([msg1, msg2, msg3], chainId);
+ * const result = getDigest(accountAddress, [msg1, msg2, msg3], chainId);
  * const webauthnAuth = await passkey.sign(result.challenge);
  * // Encode per-chain signature with merkle proof:
  * const sig0 = encodeSignatureFromDigest(result, 0, { keyId: 0 }, webauthnAuth);
@@ -121,19 +121,22 @@
  */
 import { hashTypedData } from "viem";
 // WASM imports — bundler target auto-initializes on import.
-import { encodeInstall as wasmEncodeInstall, encodeAddCredential as wasmEncodeAddCredential, encodeRemoveCredential as wasmEncodeRemoveCredential, encodeSetGuardianConfig as wasmEncodeSetGuardianConfig, encodeStatefulSignature as wasmEncodeSignature, encodeStatelessData as wasmEncodeStatelessData, encodeSingleGuardianSig as wasmEncodeSingleGuardianSig, encodeDualGuardianSig as wasmEncodeDualGuardianSig, encodeGuardianEntries as wasmEncodeGuardianEntries, buildMerkleTree as wasmBuildMerkleTree, verifyMerkleProof as wasmVerifyMerkleProof, getPasskeyDigestTypedData as wasmPasskeyDigestTypedData, getPasskeyMultichainTypedData as wasmPasskeyMultichainTypedData, getRecoveryDigest as wasmGetRecoveryDigest, getRecoveryTypehash as wasmGetRecoveryTypehash, } from "./wasm/oneauth/oneauth.js";
+import { encodeInstall as wasmEncodeInstall, encodeAddCredential as wasmEncodeAddCredential, encodeRemoveCredential as wasmEncodeRemoveCredential, encodeSetGuardianConfig as wasmEncodeSetGuardianConfig, encodeStatefulSignature as wasmEncodeSignature, encodeStatelessData as wasmEncodeStatelessData, encodeSingleGuardianSig as wasmEncodeSingleGuardianSig, encodeDualGuardianSig as wasmEncodeDualGuardianSig, encodeGuardianEntries as wasmEncodeGuardianEntries, buildMerkleTree as wasmBuildMerkleTree, verifyMerkleProof as wasmVerifyMerkleProof, getPasskeyDigestTypedData as wasmPasskeyDigestTypedData, getPasskeyMultichainTypedData as wasmPasskeyMultichainTypedData, getRecoveryDigest as wasmGetRecoveryDigest, getRecoveryTypehash as wasmGetRecoveryTypehash, encodeAppInstall as wasmEncodeAppInstall, getAppRecoveryDigest as wasmGetAppRecoveryDigest, getAppRecoveryTypehash as wasmGetAppRecoveryTypehash, getAccountLeaf as wasmGetAccountLeaf, getMultiAccountDigest as wasmGetMultiAccountDigest, } from "./wasm/oneauth/oneauth.js";
 /** Deployed OneAuthValidator module address. */
 const MODULE_ADDRESS = "0x6B8Fb8E8862a752913Ed5aDa5696be2C381437e5";
+/** Deployed OneAuthAppValidator module address (placeholder until deployed). */
+const APP_MODULE_ADDRESS = "0x0000000000000000000000000000000000000000";
 /**
- * Get viem-compatible EIP-712 typed data for PasskeyDigest (chain-specific).
+ * Get viem-compatible EIP-712 typed data for PasskeyDigest (chain-specific, account-bound).
  * Use with viem's `signTypedData()` for wallet display, or `hashTypedData()` to compute the digest.
  *
+ * @param account - Smart account address bound into the challenge
  * @param digest - The bytes32 digest to wrap
  * @param chainId - Target chain ID
  * @param verifyingContract - Deployed OneAuthValidator address
  */
-export function getPasskeyDigestTypedData(digest, chainId, verifyingContract) {
-    return JSON.parse(wasmPasskeyDigestTypedData(digest, BigInt(chainId), verifyingContract));
+export function getPasskeyDigestTypedData(account, digest, chainId, verifyingContract) {
+    return JSON.parse(wasmPasskeyDigestTypedData(account, digest, BigInt(chainId), verifyingContract));
 }
 /**
  * Get viem-compatible EIP-712 typed data for PasskeyMultichain (chain-agnostic).
@@ -148,10 +151,15 @@ export function getPasskeyMultichainTypedData(root, validatorAddress = MODULE_AD
 /**
  * Compute the chain-specific EIP-712 challenge for single-op signing.
  * This is the bytes32 value the passkey should sign.
- * Matches `_passkeyDigest()` in the Solidity contract.
+ * Matches `_passkeyDigest(account, digest)` in the Solidity contract.
+ *
+ * @param account - Smart account address bound into the challenge
+ * @param digest - The bytes32 digest to wrap
+ * @param chainId - Target chain ID
+ * @param verifyingContract - Deployed OneAuthValidator address
  */
-export function passkeyDigest(digest, chainId, verifyingContract) {
-    return hashTypedData(getPasskeyDigestTypedData(digest, chainId, verifyingContract));
+export function passkeyDigest(account, digest, chainId, verifyingContract) {
+    return hashTypedData(getPasskeyDigestTypedData(account, digest, chainId, verifyingContract));
 }
 /**
  * Compute the chain-agnostic EIP-712 challenge for merkle batch signing.
@@ -183,6 +191,27 @@ export function encodeInstall(input) {
         guardian_threshold: input.guardianThreshold ?? 0,
     });
     const result = JSON.parse(wasmEncodeInstall(wasmInput));
+    return { address: result.address, initData: result.initData };
+}
+// ── App validator install encoding ──
+/**
+ * Encode `onInstall` calldata for the OneAuthAppValidator module.
+ * Returns the module address and ABI-encoded init data.
+ *
+ * NOTE: When computing digests for signing, use the **main validator's address**
+ * (not the app validator's), since the EIP-712 domain uses verifyingContract = mainValidator.
+ *
+ * @param input.mainAccount - The main account whose passkey credentials to reuse
+ * @returns `{ address, initData }` — pass to ERC-7579 installModule
+ */
+export function encodeAppInstall(input) {
+    const wasmInput = JSON.stringify({
+        main_account: input.mainAccount,
+        user_guardian: input.userGuardian ?? "0x0000000000000000000000000000000000000000",
+        external_guardian: input.externalGuardian ?? "0x0000000000000000000000000000000000000000",
+        guardian_threshold: input.guardianThreshold ?? 0,
+    });
+    const result = JSON.parse(wasmEncodeAppInstall(wasmInput));
     return { address: result.address, initData: result.initData };
 }
 // ── Credential management calldata ──
@@ -280,31 +309,34 @@ export function encodeGuardianEntries(entries) {
 /**
  * Prepare digest(s) for signing with EIP-712 challenge wrapping.
  *
- * - **Single message**: wraps with PasskeyDigest (chain-specific EIP-712 domain with chainId).
- * - **Multiple messages**: builds a merkle tree, wraps root with PasskeyMultichain
- *   (chain-agnostic domain without chainId). Returns per-leaf proofs.
+ * - **Single message**: wraps with PasskeyDigest (chain-specific, account-bound EIP-712).
+ * - **Multiple messages**: builds a merkle tree with account-bound leaves, wraps root with
+ *   PasskeyMultichain (chain-agnostic). Returns per-leaf proofs.
  *
  * The returned `challenge` is what the passkey should sign via WebAuthn.
  * The returned `typedData` can be passed to viem's `signTypedData()` for wallet display.
  *
+ * @param account - Smart account address bound into the challenge
  * @param messages - viem EIP-712 typed data objects (e.g., from `getUserOperationTypedData`)
  * @param chainId - Chain ID (used only for single-message path)
  * @param validatorAddress - Deployed OneAuthValidator address
  */
-export function getDigest(messages, chainId, validatorAddress = MODULE_ADDRESS) {
+export function getDigest(account, messages, chainId, validatorAddress = MODULE_ADDRESS) {
     if (messages.length === 0)
         throw new Error("at least one message required");
     const digests = messages.map((m) => hashTypedData(m));
     if (digests.length === 1) {
-        const typedData = getPasskeyDigestTypedData(digests[0], chainId, validatorAddress);
+        const typedData = getPasskeyDigestTypedData(account, digests[0], chainId, validatorAddress);
         const challenge = hashTypedData(typedData);
         return { challenge, raw: digests[0], typedData, proofs: null, is_merkle: false };
     }
-    const { root, proofs } = buildMerkleTree(digests);
+    // Merkle path — leaves are account-bound
+    const leaves = digests.map((d) => getAccountLeaf(account, d));
+    const { root, proofs } = buildMerkleTree(leaves);
     const typedData = getPasskeyMultichainTypedData(root, validatorAddress);
     const challenge = hashTypedData(typedData);
-    const merkleProofs = digests.map((d, i) => ({
-        leaf: d,
+    const merkleProofs = leaves.map((leaf, i) => ({
+        leaf,
         proof: proofs[i],
         index: i,
     }));
@@ -313,20 +345,27 @@ export function getDigest(messages, chainId, validatorAddress = MODULE_ADDRESS) 
 /**
  * Same as {@link getDigest} but takes pre-hashed bytes32 digests instead of EIP-712 objects.
  * Use when you already have the hashed digests (e.g., userOpHash from the bundler).
+ *
+ * @param account - Smart account address bound into the challenge
+ * @param hashes - Pre-hashed bytes32 digests
+ * @param chainId - Chain ID (used only for single-hash path)
+ * @param validatorAddress - Deployed OneAuthValidator address
  */
-export function getDigestFromHashes(hashes, chainId, validatorAddress = MODULE_ADDRESS) {
+export function getDigestFromHashes(account, hashes, chainId, validatorAddress = MODULE_ADDRESS) {
     if (hashes.length === 0)
         throw new Error("at least one hash required");
     if (hashes.length === 1) {
-        const typedData = getPasskeyDigestTypedData(hashes[0], chainId, validatorAddress);
+        const typedData = getPasskeyDigestTypedData(account, hashes[0], chainId, validatorAddress);
         const challenge = hashTypedData(typedData);
         return { challenge, raw: hashes[0], typedData, proofs: null, is_merkle: false };
     }
-    const { root, proofs } = buildMerkleTree(hashes);
+    // Merkle path — leaves are account-bound
+    const leaves = hashes.map((h) => getAccountLeaf(account, h));
+    const { root, proofs } = buildMerkleTree(leaves);
     const typedData = getPasskeyMultichainTypedData(root, validatorAddress);
     const challenge = hashTypedData(typedData);
-    const merkleProofs = hashes.map((d, i) => ({
-        leaf: d,
+    const merkleProofs = leaves.map((leaf, i) => ({
+        leaf,
         proof: proofs[i],
         index: i,
     }));
@@ -379,12 +418,14 @@ export function encodeSignatureFromDigest(digestResult, leafIndex, config, webau
  * "Stateless" means the public key is provided in the signature data itself,
  * not looked up on-chain. Used for external credential verification.
  *
+ * @param config.account - Smart account address (prepended to data)
  * @param config.pubKeyX - P-256 public key X coordinate
  * @param config.pubKeyY - P-256 public key Y coordinate
  * @param config.merkle - Optional merkle proof for multichain
  */
 export function encodeStatelessData(config) {
     const wasmConfig = JSON.stringify({
+        account: hexToBytes20(config.account),
         pub_key_x: hexToBytes32(config.pubKeyX),
         pub_key_y: hexToBytes32(config.pubKeyY),
         merkle: config.merkle
@@ -432,6 +473,36 @@ export function getRecoveryDigest(input) {
 export function getRecoveryTypehash() {
     return wasmGetRecoveryTypehash();
 }
+// ── App Recovery ──
+/**
+ * Compute the EIP-712 app recovery digest that must be signed by guardian(s)
+ * to change the mainAccount pointer on an OneAuthAppValidator.
+ *
+ * Uses a chain-agnostic domain separator (no chainId in domain) with chainId embedded
+ * in the struct hash -- this enables cross-chain recovery when chainId=0.
+ *
+ * @param input.account - Smart account address being recovered
+ * @param input.chainId - Target chain (0 = valid on any chain)
+ * @param input.newMainAccount - New main account address to point to
+ * @param input.nonce - Unique nonce (hex string). Each nonce can only be used once.
+ * @param input.expiry - Unix timestamp after which the recovery message expires
+ * @param input.verifyingContract - OneAuthAppValidator address (defaults to APP_MODULE_ADDRESS)
+ */
+export function getAppRecoveryDigest(input) {
+    const wasmInput = JSON.stringify({
+        account: input.account,
+        chain_id: input.chainId,
+        new_main_account: input.newMainAccount,
+        nonce: input.nonce,
+        expiry: input.expiry,
+        verifying_contract: input.verifyingContract ?? APP_MODULE_ADDRESS,
+    });
+    return wasmGetAppRecoveryDigest(wasmInput);
+}
+/** Get the `RecoverAppValidator(...)` EIP-712 typehash constant. */
+export function getAppRecoveryTypehash() {
+    return wasmGetAppRecoveryTypehash();
+}
 // ── Merkle tree ──
 /**
  * Build a Solady-compatible merkle tree from bytes32 leaves.
@@ -454,8 +525,101 @@ export function buildMerkleTree(leaves) {
 export function verifyMerkleProof(proof, root, leaf) {
     return wasmVerifyMerkleProof(JSON.stringify(proof), root, leaf);
 }
+// ── Account-bound helpers ──
+/**
+ * Compute the account-bound merkle leaf: keccak256(abi.encode(account, digest)).
+ * Used in merkle paths to bind each leaf to a specific account.
+ *
+ * @param account - Smart account address
+ * @param digest - The bytes32 digest
+ */
+export function getAccountLeaf(account, digest) {
+    return wasmGetAccountLeaf(account, digest);
+}
+/**
+ * Build a multi-account merkle tree for signing across multiple accounts with one passkey signature.
+ * Returns a single challenge to sign plus per-entry proofs for constructing per-account signatures.
+ *
+ * @param entries - Array of { account, hash } pairs — each account+hash becomes an account-bound leaf
+ * @param validatorAddress - Deployed OneAuthValidator address
+ */
+export function getMultiAccountDigest(entries, validatorAddress = MODULE_ADDRESS) {
+    const wasmEntries = entries.map((e) => ({
+        account: e.account,
+        digest: e.hash,
+    }));
+    const wasmResult = JSON.parse(wasmGetMultiAccountDigest(JSON.stringify(wasmEntries), validatorAddress));
+    const typedData = getPasskeyMultichainTypedData(wasmResult.root, validatorAddress);
+    return {
+        challenge: wasmResult.challenge,
+        root: wasmResult.root,
+        typedData,
+        entries: wasmResult.entries.map((e) => ({
+            account: e.account,
+            digest: e.digest,
+            leaf: e.leaf,
+            proof: e.proof,
+            index: e.index,
+        })),
+    };
+}
+// ── Batch signing (main + app accounts) ──
+/**
+ * Build a single-signature digest for operations across a main account and one or more app accounts.
+ * Handles app-account pre-binding automatically — the integrator just provides account + hash pairs.
+ *
+ * Returns a standard {@link DigestResult} that works directly with {@link encodeSignatureFromDigest}.
+ *
+ * @example
+ * ```ts
+ * const result = getBatchSigningDigest(mainAccount, [
+ *   { account: mainAccount, hash: mainUserOpHash },
+ *   { account: appAccount1, hash: app1UserOpHash },
+ *   { account: appAccount2, hash: app2UserOpHash },
+ * ]);
+ *
+ * const auth = await passkey.sign(result.challenge);
+ * const mainSig = encodeSignatureFromDigest(result, 0, { keyId: 0 }, auth);
+ * const app1Sig = encodeSignatureFromDigest(result, 1, { keyId: 0 }, auth);
+ * const app2Sig = encodeSignatureFromDigest(result, 2, { keyId: 0 }, auth);
+ * ```
+ *
+ * @param mainAccount - The main account whose passkey credentials are used for signing
+ * @param operations - Array of { account, hash } — each account can be the main account or an app account
+ * @param validatorAddress - Deployed OneAuthValidator address
+ */
+export function getBatchSigningDigest(mainAccount, operations, validatorAddress = MODULE_ADDRESS) {
+    if (operations.length === 0)
+        throw new Error("at least one operation required");
+    const leaves = operations.map((op) => {
+        if (op.account.toLowerCase() === mainAccount.toLowerCase()) {
+            return getAccountLeaf(mainAccount, op.hash);
+        }
+        else {
+            const boundHash = getAccountLeaf(op.account, op.hash);
+            return getAccountLeaf(mainAccount, boundHash);
+        }
+    });
+    const { root, proofs } = buildMerkleTree(leaves);
+    const typedData = getPasskeyMultichainTypedData(root, validatorAddress);
+    const challenge = hashTypedData(typedData);
+    const merkleProofs = leaves.map((leaf, i) => ({
+        leaf,
+        proof: proofs[i],
+        index: i,
+    }));
+    return { challenge, raw: root, typedData, proofs: merkleProofs, is_merkle: true };
+}
 // ── Helpers ──
-export { MODULE_ADDRESS };
+export { MODULE_ADDRESS, APP_MODULE_ADDRESS };
+function hexToBytes20(hex) {
+    const s = hex.startsWith("0x") ? hex.slice(2) : hex;
+    const bytes = [];
+    for (let i = 0; i < s.length; i += 2) {
+        bytes.push(parseInt(s.substring(i, i + 2), 16));
+    }
+    return bytes;
+}
 function hexToBytes32(hex) {
     const s = hex.startsWith("0x") ? hex.slice(2) : hex;
     const bytes = [];

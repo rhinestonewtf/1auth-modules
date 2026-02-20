@@ -60,12 +60,12 @@
  * import { getDigest, encodeSignature, encodeSignatureFromDigest } from "@rhinestone/1auth-modules";
  *
  * // Single chain operation:
- * const { challenge, typedData } = getDigest([userOpTypedData], chainId);
+ * const { challenge, typedData } = getDigest(accountAddress, [userOpTypedData], chainId);
  * const webauthnAuth = await passkey.sign(challenge); // WebAuthn assertion
  * const signature = encodeSignature({ keyId: 0 }, webauthnAuth);
  *
  * // Multichain (batch) operations — signs all at once via merkle tree:
- * const result = getDigest([msg1, msg2, msg3], chainId);
+ * const result = getDigest(accountAddress, [msg1, msg2, msg3], chainId);
  * const webauthnAuth = await passkey.sign(result.challenge);
  * // Encode per-chain signature with merkle proof:
  * const sig0 = encodeSignatureFromDigest(result, 0, { keyId: 0 }, webauthnAuth);
@@ -120,20 +120,23 @@
  * ```
  */
 import { type Hex, type Address, hashTypedData } from "viem";
-import type { InstallInput, DigestResult, StatefulSignatureConfig, StatelessSignatureConfig, RecoveryDigestInput, AddCredentialInput, SetGuardianConfigInput, GuardianEntry } from "./types.js";
+import type { InstallInput, AppInstallInput, DigestResult, StatefulSignatureConfig, StatelessSignatureConfig, RecoveryDigestInput, AppRecoveryDigestInput, AddCredentialInput, SetGuardianConfigInput, GuardianEntry, AccountDigestEntry, MultiAccountDigestResult, BatchSigningOperation } from "./types.js";
 /** Deployed OneAuthValidator module address. */
 declare const MODULE_ADDRESS: Address;
+/** Deployed OneAuthAppValidator module address (placeholder until deployed). */
+declare const APP_MODULE_ADDRESS: Address;
 /** viem-compatible EIP-712 typed data input (for hashTypedData / signTypedData). */
 export type EIP712Input = Parameters<typeof hashTypedData>[0];
 /**
- * Get viem-compatible EIP-712 typed data for PasskeyDigest (chain-specific).
+ * Get viem-compatible EIP-712 typed data for PasskeyDigest (chain-specific, account-bound).
  * Use with viem's `signTypedData()` for wallet display, or `hashTypedData()` to compute the digest.
  *
+ * @param account - Smart account address bound into the challenge
  * @param digest - The bytes32 digest to wrap
  * @param chainId - Target chain ID
  * @param verifyingContract - Deployed OneAuthValidator address
  */
-export declare function getPasskeyDigestTypedData(digest: Hex, chainId: number, verifyingContract: Address): EIP712Input;
+export declare function getPasskeyDigestTypedData(account: Address, digest: Hex, chainId: number, verifyingContract: Address): EIP712Input;
 /**
  * Get viem-compatible EIP-712 typed data for PasskeyMultichain (chain-agnostic).
  * Used for merkle batch signing — the domain omits chainId.
@@ -145,9 +148,14 @@ export declare function getPasskeyMultichainTypedData(root: Hex, validatorAddres
 /**
  * Compute the chain-specific EIP-712 challenge for single-op signing.
  * This is the bytes32 value the passkey should sign.
- * Matches `_passkeyDigest()` in the Solidity contract.
+ * Matches `_passkeyDigest(account, digest)` in the Solidity contract.
+ *
+ * @param account - Smart account address bound into the challenge
+ * @param digest - The bytes32 digest to wrap
+ * @param chainId - Target chain ID
+ * @param verifyingContract - Deployed OneAuthValidator address
  */
-export declare function passkeyDigest(digest: Hex, chainId: number, verifyingContract: Address): Hex;
+export declare function passkeyDigest(account: Address, digest: Hex, chainId: number, verifyingContract: Address): Hex;
 /**
  * Compute the chain-agnostic EIP-712 challenge for merkle batch signing.
  * Matches `_passkeyMultichain()` in the Solidity contract.
@@ -164,6 +172,20 @@ export declare function passkeyMultichain(root: Hex, validatorAddress?: Address)
  * @returns `{ address, initData }` — pass to ERC-7579 installModule
  */
 export declare function encodeInstall(input: InstallInput): {
+    address: Address;
+    initData: Hex;
+};
+/**
+ * Encode `onInstall` calldata for the OneAuthAppValidator module.
+ * Returns the module address and ABI-encoded init data.
+ *
+ * NOTE: When computing digests for signing, use the **main validator's address**
+ * (not the app validator's), since the EIP-712 domain uses verifyingContract = mainValidator.
+ *
+ * @param input.mainAccount - The main account whose passkey credentials to reuse
+ * @returns `{ address, initData }` — pass to ERC-7579 installModule
+ */
+export declare function encodeAppInstall(input: AppInstallInput): {
     address: Address;
     initData: Hex;
 };
@@ -236,23 +258,29 @@ export declare function encodeGuardianEntries(entries: GuardianEntry[]): Hex;
 /**
  * Prepare digest(s) for signing with EIP-712 challenge wrapping.
  *
- * - **Single message**: wraps with PasskeyDigest (chain-specific EIP-712 domain with chainId).
- * - **Multiple messages**: builds a merkle tree, wraps root with PasskeyMultichain
- *   (chain-agnostic domain without chainId). Returns per-leaf proofs.
+ * - **Single message**: wraps with PasskeyDigest (chain-specific, account-bound EIP-712).
+ * - **Multiple messages**: builds a merkle tree with account-bound leaves, wraps root with
+ *   PasskeyMultichain (chain-agnostic). Returns per-leaf proofs.
  *
  * The returned `challenge` is what the passkey should sign via WebAuthn.
  * The returned `typedData` can be passed to viem's `signTypedData()` for wallet display.
  *
+ * @param account - Smart account address bound into the challenge
  * @param messages - viem EIP-712 typed data objects (e.g., from `getUserOperationTypedData`)
  * @param chainId - Chain ID (used only for single-message path)
  * @param validatorAddress - Deployed OneAuthValidator address
  */
-export declare function getDigest(messages: EIP712Input[], chainId: number, validatorAddress?: Address): DigestResult;
+export declare function getDigest(account: Address, messages: EIP712Input[], chainId: number, validatorAddress?: Address): DigestResult;
 /**
  * Same as {@link getDigest} but takes pre-hashed bytes32 digests instead of EIP-712 objects.
  * Use when you already have the hashed digests (e.g., userOpHash from the bundler).
+ *
+ * @param account - Smart account address bound into the challenge
+ * @param hashes - Pre-hashed bytes32 digests
+ * @param chainId - Chain ID (used only for single-hash path)
+ * @param validatorAddress - Deployed OneAuthValidator address
  */
-export declare function getDigestFromHashes(hashes: Hex[], chainId: number, validatorAddress?: Address): DigestResult;
+export declare function getDigestFromHashes(account: Address, hashes: Hex[], chainId: number, validatorAddress?: Address): DigestResult;
 /**
  * Encode a stateful WebAuthn signature for validateUserOp / isValidSignatureWithSender.
  * "Stateful" means the credential's public key is stored on-chain, referenced by keyId.
@@ -280,6 +308,7 @@ export declare function encodeSignatureFromDigest(digestResult: DigestResult, le
  * "Stateless" means the public key is provided in the signature data itself,
  * not looked up on-chain. Used for external credential verification.
  *
+ * @param config.account - Smart account address (prepended to data)
  * @param config.pubKeyX - P-256 public key X coordinate
  * @param config.pubKeyY - P-256 public key Y coordinate
  * @param config.merkle - Optional merkle proof for multichain
@@ -306,6 +335,23 @@ export declare function getRecoveryDigest(input: RecoveryDigestInput): Hex;
 /** Get the `RecoverPasskey(...)` EIP-712 typehash constant. */
 export declare function getRecoveryTypehash(): Hex;
 /**
+ * Compute the EIP-712 app recovery digest that must be signed by guardian(s)
+ * to change the mainAccount pointer on an OneAuthAppValidator.
+ *
+ * Uses a chain-agnostic domain separator (no chainId in domain) with chainId embedded
+ * in the struct hash -- this enables cross-chain recovery when chainId=0.
+ *
+ * @param input.account - Smart account address being recovered
+ * @param input.chainId - Target chain (0 = valid on any chain)
+ * @param input.newMainAccount - New main account address to point to
+ * @param input.nonce - Unique nonce (hex string). Each nonce can only be used once.
+ * @param input.expiry - Unix timestamp after which the recovery message expires
+ * @param input.verifyingContract - OneAuthAppValidator address (defaults to APP_MODULE_ADDRESS)
+ */
+export declare function getAppRecoveryDigest(input: AppRecoveryDigestInput): Hex;
+/** Get the `RecoverAppValidator(...)` EIP-712 typehash constant. */
+export declare function getAppRecoveryTypehash(): Hex;
+/**
  * Build a Solady-compatible merkle tree from bytes32 leaves.
  * Uses sorted-pair keccak256 hashing (matches Solady's MerkleProofLib).
  *
@@ -324,4 +370,45 @@ export declare function buildMerkleTree(leaves: Hex[]): {
  * @param leaf - Leaf to verify membership of
  */
 export declare function verifyMerkleProof(proof: Hex[], root: Hex, leaf: Hex): boolean;
-export { MODULE_ADDRESS };
+/**
+ * Compute the account-bound merkle leaf: keccak256(abi.encode(account, digest)).
+ * Used in merkle paths to bind each leaf to a specific account.
+ *
+ * @param account - Smart account address
+ * @param digest - The bytes32 digest
+ */
+export declare function getAccountLeaf(account: Address, digest: Hex): Hex;
+/**
+ * Build a multi-account merkle tree for signing across multiple accounts with one passkey signature.
+ * Returns a single challenge to sign plus per-entry proofs for constructing per-account signatures.
+ *
+ * @param entries - Array of { account, hash } pairs — each account+hash becomes an account-bound leaf
+ * @param validatorAddress - Deployed OneAuthValidator address
+ */
+export declare function getMultiAccountDigest(entries: AccountDigestEntry[], validatorAddress?: Address): MultiAccountDigestResult;
+/**
+ * Build a single-signature digest for operations across a main account and one or more app accounts.
+ * Handles app-account pre-binding automatically — the integrator just provides account + hash pairs.
+ *
+ * Returns a standard {@link DigestResult} that works directly with {@link encodeSignatureFromDigest}.
+ *
+ * @example
+ * ```ts
+ * const result = getBatchSigningDigest(mainAccount, [
+ *   { account: mainAccount, hash: mainUserOpHash },
+ *   { account: appAccount1, hash: app1UserOpHash },
+ *   { account: appAccount2, hash: app2UserOpHash },
+ * ]);
+ *
+ * const auth = await passkey.sign(result.challenge);
+ * const mainSig = encodeSignatureFromDigest(result, 0, { keyId: 0 }, auth);
+ * const app1Sig = encodeSignatureFromDigest(result, 1, { keyId: 0 }, auth);
+ * const app2Sig = encodeSignatureFromDigest(result, 2, { keyId: 0 }, auth);
+ * ```
+ *
+ * @param mainAccount - The main account whose passkey credentials are used for signing
+ * @param operations - Array of { account, hash } — each account can be the main account or an app account
+ * @param validatorAddress - Deployed OneAuthValidator address
+ */
+export declare function getBatchSigningDigest(mainAccount: Address, operations: BatchSigningOperation[], validatorAddress?: Address): DigestResult;
+export { MODULE_ADDRESS, APP_MODULE_ADDRESS };

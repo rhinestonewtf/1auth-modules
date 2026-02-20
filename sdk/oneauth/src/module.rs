@@ -106,12 +106,14 @@ mod tests {
     fn trait_encode_stateless_data() {
         let m = OneAuthValidator;
         let config = StatelessSignatureConfig {
+            account: [0xAB; 20],
             pub_key_x: [0x11; 32],
             pub_key_y: [0x22; 32],
             merkle: None,
         };
         let data = m.encode_stateless_data(&config);
-        assert_eq!(data[0], 0);
-        assert_eq!(data.len(), 65);
+        assert_eq!(&data[0..20], &[0xAB; 20]); // account
+        assert_eq!(data[20], 0); // proofLength
+        assert_eq!(data.len(), 85); // 20 + 1 + 32 + 32
     }
 }

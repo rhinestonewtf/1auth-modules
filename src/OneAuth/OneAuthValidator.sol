@@ -303,14 +303,17 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
 
     /**
      * @notice Validate a signature against a specific account's stored credentials
-     * @dev Exposes the internal _validateSignatureWithConfig for use by delegated validators
-     *      (e.g., OneAuthAppValidator). The EIP-712 domain (including verifyingContract = address(this))
-     *      is computed by this contract, so passkeys sign the same challenge regardless of whether
-     *      validation is triggered directly or through a delegated validator.
-     * @param account The account whose credentials to verify against
-     * @param digest The hash to validate
+     * @dev Exposes the internal validation for use by delegated validators (e.g.,
+     *      OneAuthAppValidator). The EIP-712 domain (including verifyingContract = address(this))
+     *      is computed by this contract.
+     *
+     *      The caller is responsible for binding any additional context into the digest before
+     *      calling this function. For example, OneAuthAppValidator pre-hashes
+     *      keccak256(abi.encode(appAccount, originalDigest)) to prevent cross-account replay.
+     * @param account The account whose credentials to verify against (also bound into the challenge)
+     * @param digest The hash to validate (may be pre-bound by the caller)
      * @param data The packed signature data (same format as userOp.signature)
-     * @return True if the signature is valid for a credential stored under `account`
+     * @return True if the signature is valid
      */
     function validateSignatureForAccount(
         address account,
@@ -337,20 +340,22 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
      *      on malformed input (InvalidSignatureData, ProofTooLong, InvalidMerkleProof). It only
      *      returns false for valid-format-but-wrong-signature cases (when WebAuthn.verify fails).
      *
-     *      The `data` layout mirrors the stateful signature format (proof before credential data):
-     *        [0]       proofLength (uint8)
-     *        if proofLength == 0 (regular signing, challenge = _passkeyDigest(hash)):
-     *          [1:33]                         pubKeyX
-     *          [33:65]                        pubKeyY
+     *      The `data` layout starts with a 20-byte account address (for challenge binding),
+     *      followed by the credential/proof data:
+     *        [0:20]    account (address, bound into the challenge)
+     *        [20]      proofLength (uint8)
+     *        if proofLength == 0 (regular signing, challenge = _passkeyDigest(account, hash)):
+     *          [21:53]                        pubKeyX
+     *          [53:85]                        pubKeyY
      *        if proofLength > 0 (merkle proof, challenge = _passkeyMultichain(merkleRoot)):
-     *          [1:33]                         merkleRoot (bytes32)
-     *          [33:33+proofLength*32]         proof (bytes32[])
+     *          [21:53]                        merkleRoot (bytes32)
+     *          [53:53+proofLength*32]         proof (bytes32[])
      *          [proofEnd:proofEnd+32]         pubKeyX
      *          [proofEnd+32:proofEnd+64]      pubKeyY
      *      `signature` is packed WebAuthnAuth (see P256Lib.parseWebAuthnAuth for format).
-     * @param hash The digest to validate (or a leaf in the merkle tree for batch signing)
+     * @param hash The digest to validate (or combined with account for a merkle leaf)
      * @param signature Packed WebAuthnAuth struct (r, s, challengeIndex, typeIndex, authenticatorData, clientDataJSON)
-     * @param data Packed credential and proof data as described above
+     * @param data Packed account, credential, and proof data as described above
      * @return True if the signature is valid for the provided credentials
      */
     function validateSignatureWithData(
@@ -363,23 +368,25 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
         override
         returns (bool)
     {
-        if (data.length < 1) revert InvalidSignatureData();
-        uint256 proofLength = uint8(data[0]);
+        // First 20 bytes are the account address bound into the challenge
+        if (data.length < 21) revert InvalidSignatureData();
+        address account = address(bytes20(data[0:20]));
+        uint256 proofLength = uint8(data[20]);
 
         // Regular path: proofLength == 0 means no merkle proof, challenge is chain-specific
         if (proofLength == 0) {
-            // Minimum data: 1 (proofLength) + 32 (pubKeyX) + 32 (pubKeyY) = 65
-            if (data.length < 65) revert InvalidSignatureData();
+            // Minimum data: 20 (account) + 1 (proofLength) + 32 (pubKeyX) + 32 (pubKeyY) = 85
+            if (data.length < 85) revert InvalidSignatureData();
             (WebAuthn.WebAuthnAuth memory auth, bool ok) = P256Lib.parseWebAuthnAuth(signature);
             if (!ok) revert InvalidSignatureData();
 
-            // Challenge is _passkeyDigest(hash): chain-specific EIP-712 typed data
+            // Challenge includes account: _passkeyDigest(account, hash)
             return WebAuthn.verify(
-                abi.encode(_passkeyDigest(hash)),
+                abi.encode(_passkeyDigest(account, hash)),
                 true, // requireUV: always enforce user verification
                 auth,
-                bytes32(data[1:33]), // pubKeyX
-                bytes32(data[33:65]) // pubKeyY
+                bytes32(data[21:53]), // pubKeyX
+                bytes32(data[53:85]) // pubKeyY
             );
         }
 
@@ -387,24 +394,28 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
         if (proofLength > MAX_MERKLE_DEPTH) revert ProofTooLong();
 
         // proofEnd marks where the proof bytes end and credential data begins
-        uint256 proofEnd = 33 + (proofLength << 5); // 33 + proofLength * 32
+        // Offset by 20 for the account prefix: 20 + 1 + 32 + proofLength * 32
+        uint256 proofEnd = 53 + (proofLength << 5);
         // Minimum remaining data: pubKeyX (32) + pubKeyY (32) = 64
         if (data.length < proofEnd + 64) revert InvalidSignatureData();
 
-        bytes32 merkleRoot = bytes32(data[1:33]);
+        bytes32 merkleRoot = bytes32(data[21:53]);
 
         {
+            // Account-bound leaf: binds the digest to the specific account
+            bytes32 leaf = keccak256(abi.encode(account, hash));
+
             // Assembly constructs a calldata slice pointing to the proof bytes32[] array.
             // This avoids copying the proof to memory -- MerkleProofLib.verifyCalldata reads
             // directly from calldata.
             bytes32[] calldata proof;
             /// @solidity memory-safe-assembly
             assembly {
-                proof.offset := add(data.offset, 33)
+                proof.offset := add(data.offset, 53)
                 proof.length := proofLength
             }
-            // Verify that `hash` (the operation digest) is a leaf in the merkle tree
-            if (!MerkleProofLib.verifyCalldata(proof, merkleRoot, hash)) {
+            // Verify that the account-bound leaf is in the merkle tree
+            if (!MerkleProofLib.verifyCalldata(proof, merkleRoot, leaf)) {
                 revert InvalidMerkleProof();
             }
         }
@@ -415,7 +426,7 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
 
             // Challenge is _passkeyMultichain(merkleRoot): chain-agnostic EIP-712 hash of the
             // merkle root, enabling a single passkey signature to cover multiple operations
-            // across multiple chains
+            // across multiple chains and accounts
             return WebAuthn.verify(
                 abi.encode(_passkeyMultichain(merkleRoot)),
                 true, // requireUV: always enforce user verification
@@ -462,11 +473,16 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
      *      This prevents cross-chain replay: a signature made on chain A cannot be reused on
      *      chain B. The domain also includes verifyingContract (this module's address), which
      *      prevents cross-contract replay.
+     *      The account address is included in the struct hash to prevent cross-account replay:
+     *      a signature made for account A cannot be reused on account B.
+     * @param account The smart account this challenge is bound to
      * @param digest The operation digest to wrap in the EIP-712 typed data envelope
      * @return The chain-specific EIP-712 hash to be used as the WebAuthn challenge
      */
-    function _passkeyDigest(bytes32 digest) internal view returns (bytes32) {
-        return _hashTypedData(EIP712Lib.PASSKEY_DIGEST_TYPEHASH.hash(digest));
+    function _passkeyDigest(address account, bytes32 digest) internal view returns (bytes32) {
+        return _hashTypedData(
+            EIP712Lib.PASSKEY_DIGEST_TYPEHASH.hash(bytes32(uint256(uint160(account))), digest)
+        );
     }
 
     /**
@@ -486,11 +502,12 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
      * @notice Compute the passkey challenge for a single operation digest (chain-specific)
      * @dev Public convenience wrapper around _passkeyDigest for off-chain tooling to compute
      *      the exact challenge bytes the passkey must sign for regular (non-merkle) operations.
+     * @param account The smart account this challenge is bound to
      * @param digest The operation digest (e.g., userOpHash)
      * @return The EIP-712 typed data hash to be used as the WebAuthn challenge
      */
-    function getPasskeyDigest(bytes32 digest) public view returns (bytes32) {
-        return _passkeyDigest(digest);
+    function getPasskeyDigest(address account, bytes32 digest) public view returns (bytes32) {
+        return _passkeyDigest(account, digest);
     }
 
     /**
@@ -502,6 +519,20 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
      */
     function getPasskeyMultichain(bytes32 root) public view returns (bytes32) {
         return _passkeyMultichain(root);
+    }
+
+    /**
+     * @notice Compute the account-bound merkle leaf for a given account and digest
+     * @dev For merkle batch signing, each leaf is keccak256(abi.encode(account, digest))
+     *      rather than the raw digest. This binds each leaf to a specific smart account,
+     *      enabling multi-account merkle trees where a single signature authorizes
+     *      operations across multiple accounts.
+     * @param account The smart account address to bind into the leaf
+     * @param digest The operation digest for this account
+     * @return The account-bound leaf hash
+     */
+    function getAccountLeaf(address account, bytes32 digest) public pure returns (bytes32) {
+        return keccak256(abi.encode(account, digest));
     }
 
     /**
@@ -582,11 +613,7 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
 
     /**
      * @notice Core stateful validation -- router that dispatches to regular or merkle path
-     * @dev Returns false (not revert) for all failure cases. This is required by ERC-4337:
-     *      validateUserOp must not revert on invalid signatures, it must return VALIDATION_FAILED.
-     *      The same return-false-on-failure convention is used throughout the validation chain.
-     *
-     *      Packed signature format:
+     * @dev Packed signature format:
      *        [0]                            proofLength (uint8)
      *        if proofLength == 0 (regular signing, challenge = digest):
      *          [1:3]                        keyId (uint16)
@@ -596,8 +623,8 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
      *          [33:33+proofLength*32]       proof
      *          [proofEnd:proofEnd+2]        keyId (uint16)
      *          [proofEnd+2:]                packed WebAuthnAuth
-     * @param account The smart account address (for credential lookup)
-     * @param digest The hash to validate (userOpHash or EIP-1271 hash)
+     * @param account The smart account address (for credential lookup AND challenge binding)
+     * @param digest The hash to validate (userOpHash, EIP-1271 hash, or pre-bound digest)
      * @param data The packed signature data
      * @return True if the signature is valid
      */
@@ -628,7 +655,7 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
      * @notice Regular signing path (proofLength=0): challenge = chain-specific EIP-712 digest
      * @dev Extracts keyId from the packed signature header, looks up the credential by credKey,
      *      parses the WebAuthnAuth from the remaining calldata, and delegates to WebAuthn.verify.
-     * @param account The smart account address for credential lookup
+     * @param account The smart account address (credential lookup + challenge binding)
      * @param digest The hash to validate (wrapped in _passkeyDigest for chain-specific EIP-712)
      * @param data The full packed signature data (proofLength byte already consumed by caller)
      * @return True if the WebAuthn signature is valid for the stored credential
@@ -658,19 +685,24 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
         if (!ok) return false;
 
         // Challenge is chain-specific: _passkeyDigest wraps digest in EIP-712 with chainId
+        // and includes account to prevent cross-account replay
         return WebAuthn.verify(
-            abi.encode(_passkeyDigest(digest)), true, auth, cred.pubKeyX, cred.pubKeyY
+            abi.encode(_passkeyDigest(account, digest)), true, auth, cred.pubKeyX, cred.pubKeyY
         );
     }
 
     /**
      * @notice Merkle signing path (proofLength>0): challenge = chain-agnostic EIP-712 hash of merkleRoot
-     * @dev Verifies that `digest` is a leaf in the merkle tree rooted at `merkleRoot`, then
-     *      validates the WebAuthn signature against the chain-agnostic challenge derived from
-     *      the merkle root. This allows a single passkey signature to authorize multiple
-     *      operations across multiple chains.
-     * @param account The smart account address for credential lookup
-     * @param digest The operation digest that should be a leaf in the merkle tree
+     * @dev Verifies that the account-bound leaf keccak256(abi.encode(account, digest))
+     *      is in the merkle tree, then validates the WebAuthn signature against the chain-agnostic
+     *      challenge derived from the merkle root. This allows a single passkey signature to
+     *      authorize multiple operations across multiple chains AND multiple accounts.
+     *
+     *      For delegated validation (via OneAuthAppValidator), the digest has already been
+     *      pre-bound by the caller: keccak256(abi.encode(appAccount, originalDigest)). The leaf
+     *      then becomes keccak256(abi.encode(mainAccount, keccak256(abi.encode(appAccount, originalDigest)))).
+     * @param account The smart account address (credential lookup + leaf binding)
+     * @param digest The operation digest (combined with account to form the leaf)
      * @param data The full packed signature data including merkle proof and credential header
      * @param proofLength Number of 32-byte proof elements (already extracted from data[0])
      * @return True if the merkle proof verifies AND the WebAuthn signature is valid
@@ -699,6 +731,10 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
         bytes32 merkleRoot = bytes32(data[1:33]);
 
         {
+            // Account-bound leaf: binds this digest to the specific account,
+            // preventing cross-account replay within the same merkle tree
+            bytes32 leaf = keccak256(abi.encode(account, digest));
+
             // Assembly constructs a calldata slice for the bytes32[] proof array without copying
             // to memory. This sets the ABI calldata pointer and length for MerkleProofLib to
             // read directly from calldata, saving gas on memory allocation and copying.
@@ -708,8 +744,8 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
                 proof.offset := add(data.offset, 33)
                 proof.length := proofLength
             }
-            // Verify that `digest` (the operation hash) is a leaf in the merkle tree
-            if (!MerkleProofLib.verifyCalldata(proof, merkleRoot, digest)) return false;
+            // Verify that the account-bound leaf is in the merkle tree
+            if (!MerkleProofLib.verifyCalldata(proof, merkleRoot, leaf)) return false;
         }
 
         // Extract keyId from after the proof

@@ -39,6 +39,7 @@ export interface StatefulSignatureConfig {
 }
 
 export interface StatelessSignatureConfig {
+  account: Address;
   pubKeyX: Hex;
   pubKeyY: Hex;
   merkle?: {
@@ -98,4 +99,29 @@ export interface AppRecoveryDigestInput {
   nonce: Hex;
   expiry: number;
   verifyingContract?: Address;
+}
+
+export interface AccountDigestEntry {
+  account: Address;
+  hash: Hex;
+}
+
+export interface MultiAccountDigestResult {
+  challenge: Hex;
+  root: Hex;
+  typedData: object;
+  entries: MultiAccountProofEntry[];
+}
+
+export interface MultiAccountProofEntry {
+  account: Address;
+  digest: Hex;
+  leaf: Hex;
+  proof: Hex[];
+  index: number;
+}
+
+export interface BatchSigningOperation {
+  account: Address;
+  hash: Hex;
 }

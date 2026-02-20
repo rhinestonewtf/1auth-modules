@@ -10,6 +10,8 @@ import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.s
 import { EIP1271_MAGIC_VALUE } from "test/utils/Constants.sol";
 import { Base64Url } from "FreshCryptoLib/utils/Base64Url.sol";
 import { P256VerifierWrapper } from "test/OneAuth/helpers/P256VerifierWrapper.sol";
+import { MockERC20 } from "test/OneAuth/helpers/MockERC20.sol";
+import { MockSmartAccount } from "test/OneAuth/helpers/MockSmartAccount.sol";
 
 contract OneAuthAppValidatorTest is BaseTest {
     OneAuthValidator internal mainValidator;
@@ -94,13 +96,18 @@ contract OneAuthAppValidatorTest is BaseTest {
         );
     }
 
-    function _createValidWebAuthnSig(bytes32 digest)
+    /// @dev Create a valid WebAuthn signature for the app validator flow.
+    /// The app validator pre-hashes: keccak256(abi.encode(appAccount, digest))
+    /// Then the main validator wraps it: _passkeyDigest(mainAccount, boundHash)
+    function _createValidWebAuthnSig(address appAccount, bytes32 digest)
         internal
         view
         returns (uint256 r, uint256 s, string memory clientDataJSON)
     {
-        // The main validator wraps the digest in EIP-712
-        bytes32 challenge = mainValidator.getPasskeyDigest(digest);
+        // Mirror what the app validator does: bind app account into the digest
+        bytes32 boundHash = keccak256(abi.encode(appAccount, digest));
+        // Then the main validator wraps it in EIP-712 with the main account
+        bytes32 challenge = mainValidator.getPasskeyDigest(MAIN_ACCOUNT, boundHash);
         clientDataJSON = _buildClientDataJSON(challenge);
 
         bytes32 msgHash = sha256(abi.encodePacked(AUTH_DATA_UV, sha256(bytes(clientDataJSON))));
@@ -191,11 +198,13 @@ contract OneAuthAppValidatorTest is BaseTest {
         assertEq(appValidator.getMainAccount(APP_ACCOUNT), MAIN_ACCOUNT);
     }
 
-    function test_OnInstall_RevertWhen_AlreadyInitialized() public {
+    function test_OnInstall_IdempotentWhenAlreadyInitialized() public {
         _installAppAccount();
+        // Second install is a no-op (supports multi-type install: validator + executor)
         vm.prank(APP_ACCOUNT);
-        vm.expectRevert();
         appValidator.onInstall(abi.encode(MAIN_ACCOUNT, address(0), address(0), uint8(0)));
+        assertTrue(appValidator.isInitialized(APP_ACCOUNT));
+        assertEq(appValidator.getMainAccount(APP_ACCOUNT), MAIN_ACCOUNT);
     }
 
     function test_OnInstall_RevertWhen_ZeroMainAccount() public {
@@ -214,10 +223,11 @@ contract OneAuthAppValidatorTest is BaseTest {
         assertEq(appValidator.getMainAccount(APP_ACCOUNT), address(0));
     }
 
-    function test_OnUninstall_RevertWhen_NotInitialized() public {
+    function test_OnUninstall_IdempotentWhenNotInitialized() public {
+        // Uninstall when not initialized is a no-op (supports multi-type uninstall)
         vm.prank(APP_ACCOUNT);
-        vm.expectRevert();
         appValidator.onUninstall("");
+        assertFalse(appValidator.isInitialized(APP_ACCOUNT));
     }
 
     function test_IsInitialized() public {
@@ -242,7 +252,7 @@ contract OneAuthAppValidatorTest is BaseTest {
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = APP_ACCOUNT;
 
-        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(APP_ACCOUNT, TEST_DIGEST);
         userOp.signature = _buildRegularSignature(0, r, s, AUTH_DATA_UV, clientDataJSON);
 
         uint256 validationData =
@@ -254,7 +264,7 @@ contract OneAuthAppValidatorTest is BaseTest {
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = APP_ACCOUNT;
 
-        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(APP_ACCOUNT, TEST_DIGEST);
         userOp.signature = _buildRegularSignature(0, r, s, AUTH_DATA_UV, clientDataJSON);
 
         uint256 validationData =
@@ -268,7 +278,7 @@ contract OneAuthAppValidatorTest is BaseTest {
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = APP_ACCOUNT;
 
-        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(APP_ACCOUNT, TEST_DIGEST);
         userOp.signature = _buildRegularSignature(99, r, s, AUTH_DATA_UV, clientDataJSON);
 
         uint256 validationData =
@@ -285,7 +295,7 @@ contract OneAuthAppValidatorTest is BaseTest {
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = APP_ACCOUNT;
 
-        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(APP_ACCOUNT, TEST_DIGEST);
         userOp.signature = _buildRegularSignature(0, r, s, AUTH_DATA_UV, clientDataJSON);
 
         uint256 validationData =
@@ -298,7 +308,7 @@ contract OneAuthAppValidatorTest is BaseTest {
     function test_IsValidSignatureWithSender_RegularSigning() public {
         _installAppAccount();
 
-        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(APP_ACCOUNT, TEST_DIGEST);
         bytes memory sig = _buildRegularSignature(0, r, s, AUTH_DATA_UV, clientDataJSON);
 
         vm.prank(APP_ACCOUNT);
@@ -307,7 +317,7 @@ contract OneAuthAppValidatorTest is BaseTest {
     }
 
     function test_IsValidSignatureWithSender_FailWhen_NotInstalled() public {
-        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(APP_ACCOUNT, TEST_DIGEST);
         bytes memory sig = _buildRegularSignature(0, r, s, AUTH_DATA_UV, clientDataJSON);
 
         vm.prank(APP_ACCOUNT);
@@ -322,7 +332,10 @@ contract OneAuthAppValidatorTest is BaseTest {
     function test_ValidateUserOp_WithMerkleProof() public {
         _installAppAccount();
 
-        bytes32 leaf0 = TEST_DIGEST;
+        // App validator pre-hashes: keccak256(abi.encode(APP_ACCOUNT, TEST_DIGEST))
+        // Main validator then computes leaf: keccak256(abi.encode(MAIN_ACCOUNT, boundHash))
+        bytes32 boundHash = keccak256(abi.encode(APP_ACCOUNT, TEST_DIGEST));
+        bytes32 leaf0 = keccak256(abi.encode(MAIN_ACCOUNT, boundHash));
         bytes32 leaf1 = bytes32(uint256(0xdead));
 
         bytes32 merkleRoot;
@@ -373,7 +386,7 @@ contract OneAuthAppValidatorTest is BaseTest {
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = APP_ACCOUNT;
 
-        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(APP_ACCOUNT, TEST_DIGEST);
         userOp.signature = _buildRegularSignature(0, r, s, AUTH_DATA_UV, clientDataJSON);
 
         uint256 validationData =
@@ -393,9 +406,13 @@ contract OneAuthAppValidatorTest is BaseTest {
         assertFalse(appValidator.isModuleType(7));
     }
 
+    function test_IsModuleType_Executor() public view {
+        assertTrue(appValidator.isModuleType(2));
+    }
+
     function test_IsModuleType_Other() public view {
-        assertFalse(appValidator.isModuleType(2));
         assertFalse(appValidator.isModuleType(0));
+        assertFalse(appValidator.isModuleType(3));
     }
 
     function test_Name() public view {
@@ -424,5 +441,175 @@ contract OneAuthAppValidatorTest is BaseTest {
         vm.expectEmit(true, false, false, false);
         emit IOneAuthAppValidator.AppValidatorUninstalled(APP_ACCOUNT);
         appValidator.onUninstall("");
+    }
+}
+
+/*//////////////////////////////////////////////////////////////////////////
+                     EXECUTOR TESTS (separate contract with MockSmartAccount)
+//////////////////////////////////////////////////////////////////////////*/
+
+contract OneAuthAppValidatorExecutorTest is BaseTest {
+    OneAuthValidator internal mainValidator;
+    OneAuthAppValidator internal appValidator;
+    MockSmartAccount internal appAccount;
+    MockERC20 internal token;
+    MockERC20 internal token2;
+
+    address constant MAIN_ACCOUNT = address(0xAA);
+
+    function setUp() public virtual override {
+        BaseTest.setUp();
+
+        address SOLADY_P256_VERIFIER = 0x000000000000D01eA45F9eFD5c54f037Fa57Ea1a;
+        P256VerifierWrapper verifier_ = new P256VerifierWrapper();
+        vm.etch(SOLADY_P256_VERIFIER, address(verifier_).code);
+
+        mainValidator = new OneAuthValidator();
+        appValidator = new OneAuthAppValidator(address(mainValidator));
+
+        // Deploy a mock smart account for the app account
+        appAccount = new MockSmartAccount();
+
+        // Install app validator as validator on the mock smart account
+        appAccount.installValidator(
+            address(appValidator),
+            abi.encode(MAIN_ACCOUNT, address(0), address(0), uint8(0))
+        );
+
+        // Install app validator as executor
+        appAccount.installExecutor(address(appValidator));
+
+        // Deploy mock tokens and fund the app account
+        token = new MockERC20();
+        token2 = new MockERC20();
+        token.mint(address(appAccount), 1000 ether);
+        token2.mint(address(appAccount), 500 ether);
+        vm.deal(address(appAccount), 10 ether);
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                              SINGLE EXECUTOR TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function test_SetApprovalToMainAccount_ERC20() public {
+        vm.prank(MAIN_ACCOUNT);
+        appValidator.setApprovalToMainAccount(address(appAccount), address(token), 100 ether);
+
+        assertEq(token.allowance(address(appAccount), MAIN_ACCOUNT), 100 ether);
+    }
+
+    function test_TransferToMainAccount_ERC20() public {
+        uint256 mainBalanceBefore = token.balanceOf(MAIN_ACCOUNT);
+
+        vm.prank(MAIN_ACCOUNT);
+        appValidator.transferToMainAccount(address(appAccount), address(token), 50 ether);
+
+        assertEq(token.balanceOf(MAIN_ACCOUNT), mainBalanceBefore + 50 ether);
+        assertEq(token.balanceOf(address(appAccount)), 950 ether);
+    }
+
+    function test_TransferToMainAccount_NativeETH() public {
+        uint256 mainBalanceBefore = MAIN_ACCOUNT.balance;
+
+        vm.prank(MAIN_ACCOUNT);
+        appValidator.transferToMainAccount(address(appAccount), address(0), 1 ether);
+
+        assertEq(MAIN_ACCOUNT.balance, mainBalanceBefore + 1 ether);
+        assertEq(address(appAccount).balance, 9 ether);
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                              BATCH EXECUTOR TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function test_BatchSetApprovalToMainAccount() public {
+        IOneAuthAppValidator.TokenAmount[] memory tokens = new IOneAuthAppValidator.TokenAmount[](2);
+        tokens[0] = IOneAuthAppValidator.TokenAmount({ token: address(token), amount: 100 ether });
+        tokens[1] = IOneAuthAppValidator.TokenAmount({ token: address(token2), amount: 200 ether });
+
+        vm.prank(MAIN_ACCOUNT);
+        appValidator.batchSetApprovalToMainAccount(address(appAccount), tokens);
+
+        assertEq(token.allowance(address(appAccount), MAIN_ACCOUNT), 100 ether);
+        assertEq(token2.allowance(address(appAccount), MAIN_ACCOUNT), 200 ether);
+    }
+
+    function test_BatchTransferToMainAccount_ERC20s() public {
+        IOneAuthAppValidator.TokenAmount[] memory tokens = new IOneAuthAppValidator.TokenAmount[](2);
+        tokens[0] = IOneAuthAppValidator.TokenAmount({ token: address(token), amount: 50 ether });
+        tokens[1] = IOneAuthAppValidator.TokenAmount({ token: address(token2), amount: 25 ether });
+
+        vm.prank(MAIN_ACCOUNT);
+        appValidator.batchTransferToMainAccount(address(appAccount), tokens);
+
+        assertEq(token.balanceOf(MAIN_ACCOUNT), 50 ether);
+        assertEq(token2.balanceOf(MAIN_ACCOUNT), 25 ether);
+        assertEq(token.balanceOf(address(appAccount)), 950 ether);
+        assertEq(token2.balanceOf(address(appAccount)), 475 ether);
+    }
+
+    function test_BatchTransferToMainAccount_Mixed() public {
+        uint256 mainEthBefore = MAIN_ACCOUNT.balance;
+
+        IOneAuthAppValidator.TokenAmount[] memory tokens = new IOneAuthAppValidator.TokenAmount[](2);
+        tokens[0] = IOneAuthAppValidator.TokenAmount({ token: address(token), amount: 50 ether });
+        tokens[1] = IOneAuthAppValidator.TokenAmount({ token: address(0), amount: 1 ether });
+
+        vm.prank(MAIN_ACCOUNT);
+        appValidator.batchTransferToMainAccount(address(appAccount), tokens);
+
+        assertEq(token.balanceOf(MAIN_ACCOUNT), 50 ether);
+        assertEq(MAIN_ACCOUNT.balance, mainEthBefore + 1 ether);
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                              ACCESS CONTROL TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function test_SetApproval_RevertsIfNotMainAccount() public {
+        vm.prank(address(0xDEAD));
+        vm.expectRevert(IOneAuthAppValidator.OnlyMainAccount.selector);
+        appValidator.setApprovalToMainAccount(address(appAccount), address(token), 100 ether);
+    }
+
+    function test_Transfer_RevertsIfNotMainAccount() public {
+        vm.prank(address(0xDEAD));
+        vm.expectRevert(IOneAuthAppValidator.OnlyMainAccount.selector);
+        appValidator.transferToMainAccount(address(appAccount), address(token), 100 ether);
+    }
+
+    function test_BatchSetApproval_RevertsIfNotMainAccount() public {
+        IOneAuthAppValidator.TokenAmount[] memory tokens = new IOneAuthAppValidator.TokenAmount[](1);
+        tokens[0] = IOneAuthAppValidator.TokenAmount({ token: address(token), amount: 100 ether });
+
+        vm.prank(address(0xDEAD));
+        vm.expectRevert(IOneAuthAppValidator.OnlyMainAccount.selector);
+        appValidator.batchSetApprovalToMainAccount(address(appAccount), tokens);
+    }
+
+    function test_BatchTransfer_RevertsIfNotMainAccount() public {
+        IOneAuthAppValidator.TokenAmount[] memory tokens = new IOneAuthAppValidator.TokenAmount[](1);
+        tokens[0] = IOneAuthAppValidator.TokenAmount({ token: address(token), amount: 100 ether });
+
+        vm.prank(address(0xDEAD));
+        vm.expectRevert(IOneAuthAppValidator.OnlyMainAccount.selector);
+        appValidator.batchTransferToMainAccount(address(appAccount), tokens);
+    }
+
+    function test_SetApproval_RevertsIfNotInitialized() public {
+        address uninitializedAccount = address(0xCC);
+        vm.prank(address(0xDEAD));
+        vm.expectRevert(IOneAuthAppValidator.OnlyMainAccount.selector);
+        appValidator.setApprovalToMainAccount(uninitializedAccount, address(token), 100 ether);
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                              MODULE TYPE TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function test_IsModuleType_ValidatorAndExecutor() public view {
+        assertTrue(appValidator.isModuleType(1), "should be validator");
+        assertTrue(appValidator.isModuleType(2), "should be executor");
+        assertFalse(appValidator.isModuleType(3), "should not be fallback");
     }
 }

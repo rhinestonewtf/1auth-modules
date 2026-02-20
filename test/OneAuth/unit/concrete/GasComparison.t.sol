@@ -156,7 +156,7 @@ contract GasComparisonTest is BaseTest {
         userOp.sender = address(this);
 
         // Compute EIP-712 challenge and sign at runtime
-        bytes32 challenge = v2.getPasskeyDigest(TEST_DIGEST);
+        bytes32 challenge = v2.getPasskeyDigest(address(this), TEST_DIGEST);
         string memory clientDataJSON = _buildClientDataJSON(challenge);
         bytes32 msgHash = sha256(abi.encodePacked(AUTH_DATA_UV, sha256(bytes(clientDataJSON))));
         (bytes32 r, bytes32 s) = vm.signP256(P256_PRIV_KEY, msgHash);
@@ -230,7 +230,7 @@ contract GasComparisonTest is BaseTest {
 
     function test_gas_V2_isValidSignatureWithSender() public {
         // Compute EIP-712 challenge and sign at runtime
-        bytes32 challenge = v2.getPasskeyDigest(TEST_DIGEST);
+        bytes32 challenge = v2.getPasskeyDigest(address(this), TEST_DIGEST);
         string memory clientDataJSON = _buildClientDataJSON(challenge);
         bytes32 msgHash = sha256(abi.encodePacked(AUTH_DATA_UV, sha256(bytes(clientDataJSON))));
         (bytes32 r, bytes32 s) = vm.signP256(P256_PRIV_KEY, msgHash);

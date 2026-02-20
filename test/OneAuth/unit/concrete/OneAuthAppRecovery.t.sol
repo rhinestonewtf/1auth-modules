@@ -158,12 +158,16 @@ contract OneAuthAppRecoveryTest is BaseTest {
         );
     }
 
-    function _createValidWebAuthnSig(bytes32 digest)
+    /// @dev Create a valid WebAuthn signature for the app validator flow.
+    /// The app validator pre-hashes: keccak256(abi.encode(appAccount, digest))
+    /// Then the main validator wraps it: _passkeyDigest(mainAccount, boundHash)
+    function _createValidWebAuthnSig(address mainAccount, bytes32 digest)
         internal
         view
         returns (uint256 r, uint256 s, string memory clientDataJSON)
     {
-        bytes32 challenge = mainValidator.getPasskeyDigest(digest);
+        bytes32 boundHash = keccak256(abi.encode(APP_ACCOUNT, digest));
+        bytes32 challenge = mainValidator.getPasskeyDigest(mainAccount, boundHash);
         clientDataJSON = _buildClientDataJSON(challenge);
 
         bytes32 msgHash = sha256(abi.encodePacked(AUTH_DATA_UV, sha256(bytes(clientDataJSON))));
@@ -523,7 +527,8 @@ contract OneAuthAppRecoveryTest is BaseTest {
         PackedUserOperation memory userOp = getEmptyUserOperation();
         userOp.sender = APP_ACCOUNT;
 
-        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
+        // After recovery, APP_ACCOUNT points to MAIN_ACCOUNT_2, so use that for signing
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(MAIN_ACCOUNT_2, TEST_DIGEST);
         userOp.signature = _buildRegularSignature(0, r, s, AUTH_DATA_UV, clientDataJSON);
 
         uint256 validationData =

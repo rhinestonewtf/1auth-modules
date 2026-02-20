@@ -15,8 +15,9 @@ library EIP712Lib {
     //////////////////////////////////////////////////////////////*/
 
     /// @dev EIP-712 typehash for single-operation (chain-specific) passkey signing
+    /// @dev Includes the smart account address to prevent cross-account signature replay
     bytes32 internal constant PASSKEY_DIGEST_TYPEHASH =
-        keccak256("PasskeyDigest(bytes32 digest)");
+        keccak256("PasskeyDigest(address account,bytes32 digest)");
 
     /// @dev EIP-712 typehash for merkle batch (chain-agnostic) passkey signing
     bytes32 internal constant PASSKEY_MULTICHAIN_TYPEHASH =

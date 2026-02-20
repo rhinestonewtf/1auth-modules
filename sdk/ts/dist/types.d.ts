@@ -33,6 +33,7 @@ export interface StatefulSignatureConfig {
     };
 }
 export interface StatelessSignatureConfig {
+    account: Address;
     pubKeyX: Hex;
     pubKeyY: Hex;
     merkle?: {
@@ -70,4 +71,40 @@ export interface NewCredential {
 export interface GuardianEntry {
     id: number;
     sig: Hex;
+}
+export interface AppInstallInput {
+    /** The main account whose passkey credentials this app account will reuse. */
+    mainAccount: Address;
+    userGuardian?: Address;
+    externalGuardian?: Address;
+    guardianThreshold?: number;
+}
+export interface AppRecoveryDigestInput {
+    account: Address;
+    chainId: number;
+    newMainAccount: Address;
+    nonce: Hex;
+    expiry: number;
+    verifyingContract?: Address;
+}
+export interface AccountDigestEntry {
+    account: Address;
+    hash: Hex;
+}
+export interface MultiAccountDigestResult {
+    challenge: Hex;
+    root: Hex;
+    typedData: object;
+    entries: MultiAccountProofEntry[];
+}
+export interface MultiAccountProofEntry {
+    account: Address;
+    digest: Hex;
+    leaf: Hex;
+    proof: Hex[];
+    index: number;
+}
+export interface BatchSigningOperation {
+    account: Address;
+    hash: Hex;
 }

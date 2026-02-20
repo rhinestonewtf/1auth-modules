@@ -130,15 +130,18 @@ struct GuardianEntryInput {
 // ── Digest preparation ──
 
 /// Prepare digest(s) with EIP-712 challenge wrapping.
+/// account_hex: the smart account address bound into the challenge
 /// digests_json: JSON array of hex bytes32 strings
 /// chain_id: chain ID for single-digest (PasskeyDigest) path
 /// verifying_contract_hex: deployed OneAuthValidator address
 #[wasm_bindgen(js_name = getDigest)]
 pub fn wasm_get_digest(
+    account_hex: &str,
     digests_json: &str,
     chain_id: u64,
     verifying_contract_hex: &str,
 ) -> Result<String, JsError> {
+    let account = parse_address20(account_hex)?;
     let hex_strs: Vec<String> =
         serde_json::from_str(digests_json).map_err(|e| JsError::new(&e.to_string()))?;
 
@@ -159,20 +162,22 @@ pub fn wasm_get_digest(
 
     let contract = parse_address20(verifying_contract_hex)?;
     let result =
-        digest::get_digest(&parsed, chain_id, &contract).map_err(|e| JsError::new(&e))?;
+        digest::get_digest(&account, &parsed, chain_id, &contract).map_err(|e| JsError::new(&e))?;
     serde_json::to_string(&result).map_err(|e| JsError::new(&e.to_string()))
 }
 
-/// Compute PasskeyDigest challenge (single op, chain-specific).
+/// Compute PasskeyDigest challenge (single op, chain-specific, account-bound).
 #[wasm_bindgen(js_name = passkeyDigest)]
 pub fn wasm_passkey_digest(
+    account_hex: &str,
     digest_hex: &str,
     chain_id: u64,
     verifying_contract_hex: &str,
 ) -> Result<String, JsError> {
+    let account = parse_address20(account_hex)?;
     let digest = parse_bytes32(digest_hex)?;
     let contract = parse_address20(verifying_contract_hex)?;
-    let challenge = digest::passkey_digest(&digest, chain_id, &contract);
+    let challenge = digest::passkey_digest(&account, &digest, chain_id, &contract);
     Ok(format!("0x{}", hex::encode(challenge)))
 }
 
@@ -194,11 +199,12 @@ pub fn wasm_passkey_multichain(
 /// Pass the result to viem's hashTypedData() or signTypedData().
 #[wasm_bindgen(js_name = getPasskeyDigestTypedData)]
 pub fn wasm_passkey_digest_typed_data(
+    account_hex: &str,
     digest_hex: &str,
     chain_id: u64,
     verifying_contract_hex: &str,
 ) -> String {
-    digest::passkey_digest_typed_data(digest_hex, chain_id, verifying_contract_hex).to_string()
+    digest::passkey_digest_typed_data(account_hex, digest_hex, chain_id, verifying_contract_hex).to_string()
 }
 
 /// Returns a viem-compatible EIP-712 typed data object for PasskeyMultichain.
@@ -326,6 +332,36 @@ pub fn wasm_verify_merkle_proof(
     let leaf = parse_bytes32(leaf_hex)?;
 
     Ok(merkle::MerkleTree::verify(&proof, &root, &leaf))
+}
+
+// ── Account-bound helpers ──
+
+/// Compute the account-bound merkle leaf: keccak256(abi.encode(account, digest)).
+#[wasm_bindgen(js_name = getAccountLeaf)]
+pub fn wasm_get_account_leaf(
+    account_hex: &str,
+    digest_hex: &str,
+) -> Result<String, JsError> {
+    let account = parse_address20(account_hex)?;
+    let digest = parse_bytes32(digest_hex)?;
+    let leaf = digest::account_leaf(&account, &digest);
+    Ok(format!("0x{}", hex::encode(leaf)))
+}
+
+/// Build a multi-account merkle tree for signing across multiple accounts with one passkey signature.
+/// entries_json: JSON array of { account: "0x...", digest: "0x..." }
+/// verifying_contract_hex: deployed OneAuthValidator address
+#[wasm_bindgen(js_name = getMultiAccountDigest)]
+pub fn wasm_get_multi_account_digest(
+    entries_json: &str,
+    verifying_contract_hex: &str,
+) -> Result<String, JsError> {
+    let entries: Vec<digest::AccountDigestEntry> =
+        serde_json::from_str(entries_json).map_err(|e| JsError::new(&e.to_string()))?;
+    let contract = parse_address20(verifying_contract_hex)?;
+    let result = digest::get_multi_account_digest(&entries, &contract)
+        .map_err(|e| JsError::new(&e))?;
+    serde_json::to_string(&result).map_err(|e| JsError::new(&e.to_string()))
 }
 
 fn parse_address20(hex_str: &str) -> Result<[u8; 20], JsError> {
