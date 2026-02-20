@@ -70,7 +70,7 @@ contract CredentialHandler is Test {
         }
 
         vm.prank(actor);
-        try validator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint48(0))) {
+        try validator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0))) {
             ghost_isInstalled[actor] = true;
             ghost_credentialCount[actor] = count;
             for (uint256 i; i < count; i++) {
@@ -88,7 +88,7 @@ contract CredentialHandler is Test {
         try validator.onUninstall("") {
             ghost_isInstalled[actor] = false;
             ghost_credentialCount[actor] = 0;
-            // onUninstall clears guardian/pending/timelock on-chain, sync ghost state
+            // onUninstall clears guardian on-chain, sync ghost state
             if (address(recoveryHandler) != address(0)) {
                 recoveryHandler.ghostClearGuardianState(actor);
             }

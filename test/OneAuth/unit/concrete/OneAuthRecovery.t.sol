@@ -111,7 +111,7 @@ contract OneAuthRecoveryTest is BaseTest {
         OneAuthValidator.WebAuthnCredential[] memory creds =
             new OneAuthValidator.WebAuthnCredential[](1);
         creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
-        return abi.encode(keyIds, creds, address(0), address(0), uint48(0));
+        return abi.encode(keyIds, creds, address(0), address(0), uint8(0));
     }
 
     function _install1() internal {
@@ -156,15 +156,15 @@ contract OneAuthRecoveryTest is BaseTest {
                               GUARDIAN CONFIG TESTS
     //////////////////////////////////////////////////////////////////////////*/
 
-    function test_ProposeGuardian_ImmediateWhenNoTimelock() public {
-        validator.setUserGuardian(address(mockGuardian));
-        assertEq(validator.userGuardian(address(this)), address(mockGuardian));
+    function test_SetGuardianConfig_Immediate() public {
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        { (address ug,,) = validator.guardianConfig(address(this)); assertEq(ug, address(mockGuardian)); }
     }
 
     function test_ProposeGuardian_ToZero() public {
-        validator.setUserGuardian(address(mockGuardian));
-        validator.setUserGuardian(address(0));
-        assertEq(validator.userGuardian(address(this)), address(0));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(0), address(0), 1);
+        { (address ug,,) = validator.guardianConfig(address(this)); assertEq(ug, address(0)); }
     }
 
     function test_OnInstall_SetsGuardian() public {
@@ -173,18 +173,18 @@ contract OneAuthRecoveryTest is BaseTest {
         OneAuthValidator.WebAuthnCredential[] memory creds =
             new OneAuthValidator.WebAuthnCredential[](1);
         creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
-        validator.onInstall(abi.encode(keyIds, creds, address(mockGuardian), address(0), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(mockGuardian), address(0), uint8(0)));
 
-        assertEq(validator.userGuardian(address(this)), address(mockGuardian));
+        { (address ug,,) = validator.guardianConfig(address(this)); assertEq(ug, address(mockGuardian)); }
     }
 
     function test_OnUninstall_ClearsGuardian() public {
         _install1();
-        validator.setUserGuardian(address(mockGuardian));
-        assertEq(validator.userGuardian(address(this)), address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        { (address ug,,) = validator.guardianConfig(address(this)); assertEq(ug, address(mockGuardian)); }
 
         validator.onUninstall("");
-        assertEq(validator.userGuardian(address(this)), address(0));
+        { (address ug2,,) = validator.guardianConfig(address(this)); assertEq(ug2, address(0)); }
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -287,7 +287,7 @@ contract OneAuthRecoveryTest is BaseTest {
         _install1();
 
         // Mark nonce 42 as used by doing a guardian recovery first
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(5, _pubKeyX1, _pubKeyY1);
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, 42, expiry);
@@ -347,7 +347,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithPasskey_ChainIdZero_AnyChain() public {
         _install1();
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
@@ -364,7 +364,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_Success() public {
         _install1();
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 0;
@@ -384,7 +384,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_NonceMarkedUsed() public {
         _install1();
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 7;
@@ -402,7 +402,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_Expired() public {
         _install1();
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
         vm.warp(2000);
@@ -412,7 +412,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_NonceAlreadyUsed() public {
         _install1();
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 0;
@@ -441,7 +441,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_InvalidGuardianSignature() public {
         _install1();
-        validator.setUserGuardian(address(rejectingGuardian));
+        validator.setGuardianConfig(address(rejectingGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
@@ -451,7 +451,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_ZeroPubKey() public {
         _install1();
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, bytes32(0), bytes32(0));
@@ -464,7 +464,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_DuplicateCredKey() public {
         _install1(); // keyId 0
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(0, _pubKeyX1, _pubKeyY1);
@@ -477,7 +477,7 @@ contract OneAuthRecoveryTest is BaseTest {
     }
 
     function test_RecoverWithGuardian_RevertWhen_NotInitialized() public {
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
@@ -491,7 +491,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_InvalidChainId() public {
         _install1();
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
@@ -501,7 +501,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_ChainIdZero_AnyChain() public {
         _install1();
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
@@ -520,7 +520,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_MultipleDifferentNonces() public {
         _install1();
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
 
@@ -552,7 +552,7 @@ contract OneAuthRecoveryTest is BaseTest {
     function test_RecoverWithGuardian_ReplaceCredential() public {
         _install1(); // keyId 0
         validator.addCredential(5, _pubKeyX1, _pubKeyY1); // keyId 5
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
         // Replace keyId 5 in-place with new pubkey (replace=true)
@@ -574,7 +574,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_ReplaceCredential_KeyIdZero() public {
         _install1(); // keyId 0
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
         // Replace keyId 0 in-place (verifies bool replace works for keyId 0)
@@ -596,7 +596,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_ReplaceCredential_RevertWhen_NotFound() public {
         _install1(); // only keyId 0
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
         // Try to replace non-existent keyId 99
@@ -623,7 +623,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoveryNonce_PersistsAcrossReinstall() public {
         _install1();
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 42;
@@ -655,7 +655,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_EmitsEvent() public {
         _install1();
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 5;
@@ -672,202 +672,11 @@ contract OneAuthRecoveryTest is BaseTest {
         validator.recoverWithGuardian(address(this), block.chainid, cred, nonce, expiry, hex"00");
     }
 
-    function test_SetUserGuardian_EmitsEvent() public {
+    function test_SetGuardianConfig_EmitsEvent() public {
         vm.expectEmit(true, true, false, false);
-        emit OneAuthRecoveryBase.UserGuardianSet(address(this), address(mockGuardian));
+        emit OneAuthRecoveryBase.GuardianConfigSet(address(this), address(mockGuardian), address(0), 1);
 
-        validator.setUserGuardian(address(mockGuardian));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
     }
 
-    /*//////////////////////////////////////////////////////////////////////////
-                          GUARDIAN TIMELOCK TESTS
-    //////////////////////////////////////////////////////////////////////////*/
-
-    function test_SetGuardianTimelock() public {
-        uint48 duration = 1 days;
-        vm.expectEmit(true, false, false, true);
-        emit OneAuthRecoveryBase.GuardianTimelockSet(address(this), duration);
-        validator.setGuardianTimelock(duration);
-
-        assertEq(validator.guardianTimelock(address(this)), duration);
-    }
-
-    function test_ProposeGuardian_ImmediateWhen_TimelockSetButNoExistingGuardian() public {
-        validator.setGuardianTimelock(1 days);
-
-        // Initial guardian set should be immediate even with timelock
-        vm.expectEmit(true, true, false, false);
-        emit OneAuthRecoveryBase.UserGuardianSet(address(this), address(mockGuardian));
-        validator.setUserGuardian(address(mockGuardian));
-
-        // Guardian should be set immediately
-        assertEq(validator.userGuardian(address(this)), address(mockGuardian));
-
-        // No pending info
-        (address pending,, uint48 activatesAt) = validator.pendingGuardianInfo(address(this));
-        assertEq(pending, address(0));
-        assertEq(activatesAt, 0);
-    }
-
-    function test_ProposeGuardian_PendingWhen_TimelockSetAndExistingGuardian() public {
-        // Set initial guardian (immediate since no existing)
-        validator.setUserGuardian(address(rejectingGuardian));
-        assertEq(validator.userGuardian(address(this)), address(rejectingGuardian));
-
-        // Now set timelock
-        validator.setGuardianTimelock(1 days);
-
-        // Changing guardian should be timelocked
-        vm.expectEmit(true, true, false, true);
-        emit OneAuthRecoveryBase.GuardianChangeProposed(
-            address(this), address(mockGuardian), false, uint48(block.timestamp + 1 days)
-        );
-        validator.setUserGuardian(address(mockGuardian));
-
-        // Guardian should NOT have changed
-        assertEq(validator.userGuardian(address(this)), address(rejectingGuardian));
-
-        // Pending info should be populated
-        (address pending,, uint48 activatesAt) = validator.pendingGuardianInfo(address(this));
-        assertEq(pending, address(mockGuardian));
-        assertEq(activatesAt, uint48(block.timestamp + 1 days));
-    }
-
-    function test_ConfirmGuardian_RevertWhen_TimelockNotElapsed() public {
-        // Set initial guardian (immediate)
-        validator.setUserGuardian(address(rejectingGuardian));
-        validator.setGuardianTimelock(1 days);
-
-        // Propose a change (timelocked since existing guardian)
-        validator.setUserGuardian(address(mockGuardian));
-
-        // Try to confirm before timelock elapses
-        vm.expectRevert(OneAuthRecoveryBase.GuardianTimelockNotElapsed.selector);
-        validator.confirmGuardian();
-    }
-
-    function test_ConfirmGuardian_Success_AfterTimelock() public {
-        // Set initial guardian (immediate)
-        validator.setUserGuardian(address(rejectingGuardian));
-        validator.setGuardianTimelock(1 days);
-
-        // Propose a change (timelocked)
-        validator.setUserGuardian(address(mockGuardian));
-
-        // Warp past the timelock
-        vm.warp(block.timestamp + 1 days);
-
-        vm.expectEmit(true, true, false, false);
-        emit OneAuthRecoveryBase.UserGuardianSet(address(this), address(mockGuardian));
-        validator.confirmGuardian();
-
-        // Guardian should now be set
-        assertEq(validator.userGuardian(address(this)), address(mockGuardian));
-
-        // Pending info should be cleared
-        (address pending,, uint48 activatesAt) = validator.pendingGuardianInfo(address(this));
-        assertEq(pending, address(0));
-        assertEq(activatesAt, 0);
-    }
-
-    function test_CancelGuardianChange() public {
-        // Set initial guardian (immediate)
-        validator.setUserGuardian(address(rejectingGuardian));
-        validator.setGuardianTimelock(1 days);
-
-        // Propose a change (timelocked)
-        validator.setUserGuardian(address(mockGuardian));
-
-        vm.expectEmit(true, false, false, false);
-        emit OneAuthRecoveryBase.GuardianChangeCancelled(address(this));
-        validator.cancelGuardianChange();
-
-        // Pending should be cleared
-        (address pending,, uint48 activatesAt) = validator.pendingGuardianInfo(address(this));
-        assertEq(pending, address(0));
-        assertEq(activatesAt, 0);
-
-        // Guardian should still be the original
-        assertEq(validator.userGuardian(address(this)), address(rejectingGuardian));
-    }
-
-    function test_CancelGuardianChange_RevertWhen_NoPending() public {
-        vm.expectRevert(OneAuthRecoveryBase.NoPendingGuardianChange.selector);
-        validator.cancelGuardianChange();
-    }
-
-    function test_ConfirmGuardian_RevertWhen_NoPending() public {
-        vm.expectRevert(OneAuthRecoveryBase.NoPendingGuardianChange.selector);
-        validator.confirmGuardian();
-    }
-
-    function test_OnUninstall_ClearsPendingGuardian() public {
-        _install1();
-        // Set initial guardian (immediate since none exists)
-        validator.setUserGuardian(address(rejectingGuardian));
-        validator.setGuardianTimelock(1 days);
-        // Propose a change (timelocked since existing guardian)
-        validator.setUserGuardian(address(mockGuardian));
-
-        validator.onUninstall("");
-
-        // Pending should be cleared
-        (address pending,, uint48 activatesAt) = validator.pendingGuardianInfo(address(this));
-        assertEq(pending, address(0));
-        assertEq(activatesAt, 0);
-    }
-
-    function test_GuardianTimelock_PersistsFromPreInstall() public {
-        // Set timelock BEFORE installing the module
-        validator.setGuardianTimelock(1 days);
-
-        // Install with guardianTimelock=0 (which means "don't override")
-        // _install1 passes guardianTimelock=0 in the encoded data
-        _install1();
-
-        // The pre-install timelock should persist because onInstall only
-        // sets guardianTimelock when the provided value is non-zero
-        assertEq(
-            validator.guardianTimelock(address(this)),
-            1 days,
-            "Pre-install timelock should persist when onInstall passes 0"
-        );
-    }
-
-    function test_SetGuardianTimelock_RemoveTimelock() public {
-        _install1();
-
-        // Set a timelock
-        validator.setGuardianTimelock(1 days);
-        assertEq(validator.guardianTimelock(address(this)), 1 days);
-
-        // Remove timelock by setting to 0
-        validator.setGuardianTimelock(0);
-        assertEq(validator.guardianTimelock(address(this)), 0);
-
-        // Now setUserGuardian should take effect immediately
-        address newGuardian = makeAddr("newGuardian");
-        validator.setUserGuardian(newGuardian);
-        assertEq(
-            validator.userGuardian(address(this)),
-            newGuardian,
-            "Guardian should change immediately with zero timelock"
-        );
-    }
-
-    function test_OnInstall_SetsGuardianTimelock() public {
-        uint16[] memory keyIds = new uint16[](1);
-        keyIds[0] = 0;
-        OneAuthValidator.WebAuthnCredential[] memory creds =
-            new OneAuthValidator.WebAuthnCredential[](1);
-        creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
-        validator.onInstall(abi.encode(keyIds, creds, address(mockGuardian), address(0), uint48(1 days)));
-
-        assertEq(validator.userGuardian(address(this)), address(mockGuardian));
-        assertEq(validator.guardianTimelock(address(this)), uint48(1 days));
-
-        // With timelock set via onInstall, setUserGuardian should queue (not immediate)
-        validator.setUserGuardian(address(rejectingGuardian));
-        assertEq(validator.userGuardian(address(this)), address(mockGuardian));
-    }
 }

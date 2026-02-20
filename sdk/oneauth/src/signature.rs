@@ -76,6 +76,50 @@ pub fn encode_stateful_signature(
     result
 }
 
+// ── Guardian recovery signature encoding ──
+
+/// Encode a single-guardian recovery signature.
+/// Format: [type_byte][sig]
+/// type_byte: 0x00 = user guardian, 0x01 = external guardian
+pub fn encode_single_guardian_sig(guardian_type: u8, sig: &[u8]) -> Vec<u8> {
+    let mut result = Vec::with_capacity(1 + sig.len());
+    result.push(guardian_type);
+    result.extend_from_slice(sig);
+    result
+}
+
+/// Encode a dual-guardian recovery signature (threshold=2).
+/// Format: [user_sig_len: uint16 big-endian][user_sig][external_sig]
+pub fn encode_dual_guardian_sig(user_sig: &[u8], external_sig: &[u8]) -> Vec<u8> {
+    let len = user_sig.len() as u16;
+    let mut result = Vec::with_capacity(2 + user_sig.len() + external_sig.len());
+    result.extend_from_slice(&len.to_be_bytes());
+    result.extend_from_slice(user_sig);
+    result.extend_from_slice(external_sig);
+    result
+}
+
+/// Encode a single Guardian.sol multisig entry.
+/// Format: [id: uint8][sigLen: uint16 big-endian][sig]
+pub fn encode_guardian_entry(id: u8, sig: &[u8]) -> Vec<u8> {
+    let sig_len = sig.len() as u16;
+    let mut result = Vec::with_capacity(3 + sig.len());
+    result.push(id);
+    result.extend_from_slice(&sig_len.to_be_bytes());
+    result.extend_from_slice(sig);
+    result
+}
+
+/// Encode multiple Guardian.sol entries into a single signature blob.
+/// Each entry: [id: uint8][sigLen: uint16][sig]
+pub fn encode_guardian_entries(entries: &[(u8, Vec<u8>)]) -> Vec<u8> {
+    let mut result = Vec::new();
+    for (id, sig) in entries {
+        result.extend_from_slice(&encode_guardian_entry(*id, sig));
+    }
+    result
+}
+
 /// Encode stateless data (for validateSignatureWithData).
 pub fn encode_stateless_data(config: &StatelessSignatureConfig) -> Vec<u8> {
     let mut result = Vec::new();
@@ -178,5 +222,67 @@ mod tests {
         assert_eq!(&data[65..97], &[0x11; 32]); // pubKeyX
         assert_eq!(&data[97..129], &[0x22; 32]); // pubKeyY
         assert_eq!(data.len(), 129);
+    }
+
+    #[test]
+    fn single_guardian_sig_user() {
+        let sig = vec![0xAA; 65];
+        let result = encode_single_guardian_sig(0x00, &sig);
+        assert_eq!(result[0], 0x00); // user guardian type
+        assert_eq!(&result[1..], &sig[..]);
+        assert_eq!(result.len(), 66);
+    }
+
+    #[test]
+    fn single_guardian_sig_external() {
+        let sig = vec![0xBB; 65];
+        let result = encode_single_guardian_sig(0x01, &sig);
+        assert_eq!(result[0], 0x01); // external guardian type
+        assert_eq!(&result[1..], &sig[..]);
+    }
+
+    #[test]
+    fn dual_guardian_sig() {
+        let user_sig = vec![0xAA; 65];
+        let ext_sig = vec![0xBB; 65];
+        let result = encode_dual_guardian_sig(&user_sig, &ext_sig);
+
+        // First 2 bytes = user_sig length (65 = 0x0041)
+        assert_eq!(result[0], 0x00);
+        assert_eq!(result[1], 0x41);
+        // user sig
+        assert_eq!(&result[2..67], &user_sig[..]);
+        // external sig
+        assert_eq!(&result[67..], &ext_sig[..]);
+        assert_eq!(result.len(), 2 + 65 + 65);
+    }
+
+    #[test]
+    fn guardian_entry_format() {
+        let sig = vec![0xCC; 65];
+        let entry = encode_guardian_entry(1, &sig);
+
+        assert_eq!(entry[0], 1); // id
+        assert_eq!(entry[1], 0x00); // sigLen high byte
+        assert_eq!(entry[2], 0x41); // sigLen low byte (65)
+        assert_eq!(&entry[3..], &sig[..]);
+        assert_eq!(entry.len(), 3 + 65);
+    }
+
+    #[test]
+    fn guardian_entries_packs_multiple() {
+        let sig0 = vec![0xAA; 65];
+        let sig1 = vec![0xBB; 65];
+        let entries = vec![(0u8, sig0.clone()), (1u8, sig1.clone())];
+        let result = encode_guardian_entries(&entries);
+
+        // Two entries, each 3 + 65 = 68 bytes
+        assert_eq!(result.len(), 2 * 68);
+        // First entry
+        assert_eq!(result[0], 0); // id=0
+        assert_eq!(&result[3..68], &sig0[..]);
+        // Second entry
+        assert_eq!(result[68], 1); // id=1
+        assert_eq!(&result[71..], &sig1[..]);
     }
 }

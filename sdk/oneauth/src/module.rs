@@ -76,7 +76,7 @@ mod tests {
             }],
             user_guardian: None,
             external_guardian: None,
-            guardian_timelock: None,
+            guardian_threshold: None,
         };
         let bytes = m.encode_install(&input).unwrap();
         assert!(!bytes.is_empty());

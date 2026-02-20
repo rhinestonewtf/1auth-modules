@@ -29,6 +29,88 @@ pub fn wasm_encode_install(input_json: &str) -> Result<String, JsError> {
     Ok(result.to_string())
 }
 
+// ── Credential management calldata ──
+
+#[wasm_bindgen(js_name = encodeAddCredential)]
+pub fn wasm_encode_add_credential(input_json: &str) -> Result<String, JsError> {
+    let input: encode::AddCredentialInput =
+        serde_json::from_str(input_json).map_err(|e| JsError::new(&e.to_string()))?;
+    let bytes = encode::encode_add_credential(&input).map_err(|e| JsError::new(&e))?;
+    Ok(format!("0x{}", hex::encode(&bytes)))
+}
+
+#[wasm_bindgen(js_name = encodeRemoveCredential)]
+pub fn wasm_encode_remove_credential(key_id: u16) -> String {
+    let bytes = encode::encode_remove_credential(key_id);
+    format!("0x{}", hex::encode(&bytes))
+}
+
+// ── Guardian configuration calldata ──
+
+#[wasm_bindgen(js_name = encodeSetGuardianConfig)]
+pub fn wasm_encode_set_guardian_config(input_json: &str) -> Result<String, JsError> {
+    let input: encode::SetGuardianConfigInput =
+        serde_json::from_str(input_json).map_err(|e| JsError::new(&e.to_string()))?;
+    let bytes = encode::encode_set_guardian_config(&input).map_err(|e| JsError::new(&e))?;
+    Ok(format!("0x{}", hex::encode(&bytes)))
+}
+
+// ── Guardian recovery signature encoding ──
+
+#[wasm_bindgen(js_name = encodeSingleGuardianSig)]
+pub fn wasm_encode_single_guardian_sig(
+    guardian_type: u8,
+    sig_hex: &str,
+) -> Result<String, JsError> {
+    let sig_hex = sig_hex.strip_prefix("0x").unwrap_or(sig_hex);
+    let sig = hex::decode(sig_hex).map_err(|e| JsError::new(&format!("invalid sig hex: {e}")))?;
+    let result = signature::encode_single_guardian_sig(guardian_type, &sig);
+    Ok(format!("0x{}", hex::encode(&result)))
+}
+
+#[wasm_bindgen(js_name = encodeDualGuardianSig)]
+pub fn wasm_encode_dual_guardian_sig(
+    user_sig_hex: &str,
+    external_sig_hex: &str,
+) -> Result<String, JsError> {
+    let user_hex = user_sig_hex.strip_prefix("0x").unwrap_or(user_sig_hex);
+    let user_sig =
+        hex::decode(user_hex).map_err(|e| JsError::new(&format!("invalid user sig hex: {e}")))?;
+    let ext_hex = external_sig_hex
+        .strip_prefix("0x")
+        .unwrap_or(external_sig_hex);
+    let ext_sig = hex::decode(ext_hex)
+        .map_err(|e| JsError::new(&format!("invalid external sig hex: {e}")))?;
+    let result = signature::encode_dual_guardian_sig(&user_sig, &ext_sig);
+    Ok(format!("0x{}", hex::encode(&result)))
+}
+
+#[wasm_bindgen(js_name = encodeGuardianEntries)]
+pub fn wasm_encode_guardian_entries(entries_json: &str) -> Result<String, JsError> {
+    let raw_entries: Vec<GuardianEntryInput> =
+        serde_json::from_str(entries_json).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let entries: Vec<(u8, Vec<u8>)> = raw_entries
+        .into_iter()
+        .map(|e| {
+            let sig_hex = e.sig.strip_prefix("0x").unwrap_or(&e.sig);
+            let sig =
+                hex::decode(sig_hex).map_err(|err| format!("invalid sig hex for id {}: {err}", e.id))?;
+            Ok((e.id, sig))
+        })
+        .collect::<Result<Vec<_>, String>>()
+        .map_err(|e| JsError::new(&e))?;
+
+    let result = signature::encode_guardian_entries(&entries);
+    Ok(format!("0x{}", hex::encode(&result)))
+}
+
+#[derive(serde::Deserialize)]
+struct GuardianEntryInput {
+    id: u8,
+    sig: String,
+}
+
 // ── Digest preparation ──
 
 /// Prepare digest(s) with EIP-712 challenge wrapping.

@@ -36,26 +36,15 @@ contract RecoveryHandler is Test {
     // Ghost state — guardian
     mapping(address => address) public ghost_userGuardian;
     mapping(address => address) public ghost_externalGuardian;
-    mapping(address => address) public ghost_pendingGuardian;
-    mapping(address => uint48) public ghost_guardianActivatesAt;
-    mapping(address => uint48) public ghost_guardianTimelock;
-    mapping(address => bool) public ghost_pendingIsExternal;
 
     /// @dev Called by CredentialHandler on uninstall to clear guardian ghost state
     function ghostClearGuardianState(address actor) external {
         ghost_userGuardian[actor] = address(0);
         ghost_externalGuardian[actor] = address(0);
-        ghost_pendingGuardian[actor] = address(0);
-        ghost_guardianActivatesAt[actor] = 0;
-        ghost_guardianTimelock[actor] = 0;
-        ghost_pendingIsExternal[actor] = false;
     }
 
     // Call counters
     uint256 public ghost_setUserGuardianCalls;
-    uint256 public ghost_confirmGuardianCalls;
-    uint256 public ghost_cancelGuardianCalls;
-    uint256 public ghost_setTimelockCalls;
     uint256 public ghost_recoveryCalls;
     uint256 public ghost_warpCalls;
 
@@ -85,64 +74,11 @@ contract RecoveryHandler is Test {
         if (!credHandler.ghost_isInstalled(actor)) return;
 
         address newGuardian = _pickGuardian(guardianSeed);
-        uint48 timelock = ghost_guardianTimelock[actor];
 
         vm.prank(actor);
-        try validator.setUserGuardian(newGuardian) {
-            if (timelock == 0 || ghost_userGuardian[actor] == address(0)) {
-                ghost_userGuardian[actor] = newGuardian;
-            } else {
-                ghost_pendingGuardian[actor] = newGuardian;
-                ghost_pendingIsExternal[actor] = false;
-                ghost_guardianActivatesAt[actor] = uint48(block.timestamp) + timelock;
-            }
+        try validator.setGuardianConfig(newGuardian, address(0), 1) {
+            ghost_userGuardian[actor] = newGuardian;
             ghost_setUserGuardianCalls++;
-        } catch { }
-    }
-
-    function handler_confirmGuardian(uint8 actorSeed) external {
-        address actor = _pickActor(actorSeed);
-        if (ghost_pendingGuardian[actor] == address(0)) return;
-        if (ghost_guardianActivatesAt[actor] == 0) return;
-        if (block.timestamp < ghost_guardianActivatesAt[actor]) return;
-
-        vm.prank(actor);
-        try validator.confirmGuardian() {
-            if (ghost_pendingIsExternal[actor]) {
-                ghost_externalGuardian[actor] = ghost_pendingGuardian[actor];
-            } else {
-                ghost_userGuardian[actor] = ghost_pendingGuardian[actor];
-            }
-            ghost_pendingGuardian[actor] = address(0);
-            ghost_guardianActivatesAt[actor] = 0;
-            ghost_pendingIsExternal[actor] = false;
-            ghost_confirmGuardianCalls++;
-        } catch { }
-    }
-
-    function handler_cancelGuardianChange(uint8 actorSeed) external {
-        address actor = _pickActor(actorSeed);
-        if (ghost_guardianActivatesAt[actor] == 0) return;
-
-        vm.prank(actor);
-        try validator.cancelGuardianChange() {
-            ghost_pendingGuardian[actor] = address(0);
-            ghost_guardianActivatesAt[actor] = 0;
-            ghost_pendingIsExternal[actor] = false;
-            ghost_cancelGuardianCalls++;
-        } catch { }
-    }
-
-    function handler_setGuardianTimelock(uint8 actorSeed, uint48 duration) external {
-        address actor = _pickActor(actorSeed);
-        if (!credHandler.ghost_isInstalled(actor)) return;
-
-        duration = uint48(bound(duration, 0, 7 days));
-
-        vm.prank(actor);
-        try validator.setGuardianTimelock(duration) {
-            ghost_guardianTimelock[actor] = duration;
-            ghost_setTimelockCalls++;
         } catch { }
     }
 

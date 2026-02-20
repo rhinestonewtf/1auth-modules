@@ -30,12 +30,6 @@ import { MAX_MERKLE_DEPTH, MAX_CREDENTIALS } from "./lib/Constants.sol";
  *      the credential at keyId has its public key overwritten in-place. When replace is
  *      false, recovery is additive (new credential added, existing keys remain).
  *
- *      Guardian timelock: Guardian changes support an optional timelock via setUserGuardian()
- *      and setExternalGuardian(). When guardianTimelock is zero (the default), changes take
- *      effect immediately. When non-zero and a guardian of that type already exists, changes
- *      are queued and must be confirmed via confirmGuardian() after the timelock elapses.
- *      Initial guardian set (no existing guardian of that type) is always immediate.
- *
  *      Cross-chain merkle signing requires same contract address: _passkeyMultichain() uses
  *      _hashTypedDataSansChainId which omits chainId but still includes verifyingContract in
  *      the EIP-712 domain separator. The module must be deployed at the same address on all
@@ -84,10 +78,10 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Install the module with initial credentials, optional guardians, and optional timelock
+     * @notice Install the module with initial credentials and optional guardian config
      * @dev Called by the smart account during module installation (ERC-7579 lifecycle).
      *      msg.sender is the smart account itself, not an EOA or external caller.
-     * @param data abi.encode(uint16[] keyIds, WebAuthnCredential[] creds, address userGuardian, address externalGuardian, uint48 guardianTimelock)
+     * @param data abi.encode(uint16[] keyIds, WebAuthnCredential[] creds, address userGuardian, address externalGuardian, uint8 guardianThreshold)
      */
     function onInstall(bytes calldata data) external override {
         address account = msg.sender;
@@ -98,8 +92,8 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
             WebAuthnCredential[] memory creds,
             address _userGuardian,
             address _externalGuardian,
-            uint48 _guardianTimelock
-        ) = abi.decode(data, (uint16[], WebAuthnCredential[], address, address, uint48));
+            uint8 _guardianThreshold
+        ) = abi.decode(data, (uint16[], WebAuthnCredential[], address, address, uint8));
         uint256 length = creds.length;
 
         if (length == 0 || length != keyIds.length) {
@@ -112,16 +106,14 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
             _storeCredential(pc, account, keyIds[i], creds[i].pubKeyX, creds[i].pubKeyY);
         }
 
-        if (_userGuardian != address(0)) {
-            _setUserGuardianImmediate(account, _userGuardian);
-        }
-        if (_externalGuardian != address(0)) {
-            _setExternalGuardianImmediate(account, _externalGuardian);
-        }
-
-        if (_guardianTimelock != 0) {
-            _recoveryConfig[account].guardianTimelock = _guardianTimelock;
-            emit GuardianTimelockSet(account, _guardianTimelock);
+        // Set guardian config if any guardian is provided or threshold is explicitly set
+        if (_userGuardian != address(0) || _externalGuardian != address(0) || _guardianThreshold != 0)
+        {
+            // Default threshold to 1 when guardians provided but no explicit threshold
+            uint8 effectiveThreshold = _guardianThreshold == 0 ? 1 : _guardianThreshold;
+            _setGuardianConfigImmediate(
+                account, _userGuardian, _externalGuardian, effectiveThreshold
+            );
         }
 
         emit ModuleInitialized(account);
@@ -151,13 +143,8 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
             pc.enabledCredKeys.remove(credKeys[i]);
         }
 
-        // Clear all guardian state but leave nonceUsed intact to prevent replay after reinstallation
-        delete _recoveryConfig[account].userGuardian;
-        delete _recoveryConfig[account].externalGuardian;
-        delete _recoveryConfig[account].pendingGuardian;
-        delete _recoveryConfig[account].guardianActivatesAt;
-        delete _recoveryConfig[account].guardianTimelock;
-        delete _recoveryConfig[account].pendingIsExternal;
+        // Clear guardian state but leave nonceUsed intact to prevent replay after reinstallation
+        delete _recoveryConfig[account].guardian;
 
         emit ModuleUninitialized(account);
     }

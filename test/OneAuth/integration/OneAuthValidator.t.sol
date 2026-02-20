@@ -33,7 +33,7 @@ contract OneAuthValidatorIntegrationTest is BaseIntegrationTest {
         super.setUp();
         validator = new OneAuthValidator();
 
-        // Setup two credentials with keyIds 0 and 1, no guardian, no timelock
+        // Setup two credentials with keyIds 0 and 1, no guardian
         uint16[] memory keyIds = new uint16[](2);
         keyIds[0] = 0;
         keyIds[1] = 1;
@@ -50,13 +50,12 @@ contract OneAuthValidatorIntegrationTest is BaseIntegrationTest {
 
         address userGuardian_ = address(0);
         address externalGuardian_ = address(0);
-        uint48 guardianTimelock = 0;
 
         // Install the validator module on the account
         instance.installModule({
             moduleTypeId: MODULE_TYPE_VALIDATOR,
             module: address(validator),
-            data: abi.encode(keyIds, creds, userGuardian_, externalGuardian_, guardianTimelock)
+            data: abi.encode(keyIds, creds, userGuardian_, externalGuardian_, uint8(0))
         });
     }
 
@@ -152,14 +151,16 @@ contract OneAuthValidatorIntegrationTest is BaseIntegrationTest {
             target: address(validator),
             value: 0,
             callData: abi.encodeWithSelector(
-                bytes4(keccak256("setUserGuardian(address)")),
-                guardianAddress
+                bytes4(keccak256("setGuardianConfig(address,address,uint8)")),
+                guardianAddress,
+                address(0),
+                uint8(1)
             ),
             txValidator: address(instance.defaultValidator)
         }).execUserOps();
 
-        // Verify guardian was set (with zero timelock it should be immediate)
-        address setGuardian = validator.userGuardian(address(instance.account));
+        // Verify guardian was set
+        (address setGuardian,,) = validator.guardianConfig(address(instance.account));
         assertEq(setGuardian, guardianAddress, "User guardian should be set");
     }
 

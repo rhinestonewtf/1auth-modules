@@ -191,7 +191,7 @@ contract OneAuthValidatorTest is BaseTest {
             pubKeyX: _pubKeyX0,
             pubKeyY: _pubKeyY0
         });
-        return abi.encode(keyIds, creds, address(0), uint48(0));
+        return abi.encode(keyIds, creds, address(0), address(0), uint8(0));
     }
 
     function _installData2() internal view returns (bytes memory) {
@@ -208,7 +208,7 @@ contract OneAuthValidatorTest is BaseTest {
             pubKeyX: _pubKeyX1,
             pubKeyY: _pubKeyY1
         });
-        return abi.encode(keyIds, creds, address(0), uint48(0));
+        return abi.encode(keyIds, creds, address(0), address(0), uint8(0));
     }
 
     function _install1() internal {
@@ -250,7 +250,7 @@ contract OneAuthValidatorTest is BaseTest {
         OneAuthValidator.WebAuthnCredential[] memory creds =
             new OneAuthValidator.WebAuthnCredential[](0);
         vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
-        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0)));
     }
 
     function test_OnInstall_RevertWhen_ZeroPubKey() public {
@@ -260,7 +260,7 @@ contract OneAuthValidatorTest is BaseTest {
             new OneAuthValidator.WebAuthnCredential[](1);
         creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: bytes32(0), pubKeyY: bytes32(0) });
         vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
-        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0)));
     }
 
     function test_OnInstall_RevertWhen_DuplicateKeyId() public {
@@ -272,7 +272,7 @@ contract OneAuthValidatorTest is BaseTest {
         creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
         creds[1] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX1, pubKeyY: _pubKeyY1 });
         vm.expectRevert(abi.encodeWithSelector(IOneAuthValidator.KeyIdAlreadyExists.selector, 5));
-        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0)));
     }
 
     function test_OnUninstall() public {
@@ -674,7 +674,7 @@ contract OneAuthValidatorTest is BaseTest {
             pubKeyY: _pubKeyY0
         });
         vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
-        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0)));
     }
 
     function test_OnInstall_RevertWhen_PubKeyYEqualsPrime() public {
@@ -687,7 +687,7 @@ contract OneAuthValidatorTest is BaseTest {
             pubKeyY: bytes32(P256_P)
         });
         vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
-        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0)));
     }
 
     function test_OnInstall_RevertWhen_PubKeyExceedsPrime() public {
@@ -700,7 +700,7 @@ contract OneAuthValidatorTest is BaseTest {
             pubKeyY: _pubKeyY0
         });
         vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
-        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0)));
     }
 
     function test_OnInstall_RevertWhen_NotOnCurve() public {
@@ -714,7 +714,7 @@ contract OneAuthValidatorTest is BaseTest {
             pubKeyY: bytes32(uint256(1))
         });
         vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
-        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0)));
     }
 
     function test_AddCredential_RevertWhen_NotOnCurve() public {
@@ -754,7 +754,7 @@ contract OneAuthValidatorTest is BaseTest {
             });
         }
         vm.expectRevert(IOneAuthValidator.TooManyCredentials.selector);
-        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0)));
     }
 
     function test_OnInstall_RevertWhen_MismatchedArrayLengths() public {
@@ -768,7 +768,7 @@ contract OneAuthValidatorTest is BaseTest {
             pubKeyY: _pubKeyY0
         });
         vm.expectRevert(IOneAuthValidator.InvalidPublicKey.selector);
-        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0)));
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -794,7 +794,7 @@ contract OneAuthValidatorTest is BaseTest {
         emit IOneAuthValidator.CredentialAdded(address(this), 10, _pubKeyX0, _pubKeyY0);
         vm.expectEmit(true, true, false, true);
         emit IOneAuthValidator.CredentialAdded(address(this), 42, _pubKeyX1, _pubKeyY1);
-        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0)));
     }
 
     function test_OnInstall_EmitsModuleInitialized() public {
