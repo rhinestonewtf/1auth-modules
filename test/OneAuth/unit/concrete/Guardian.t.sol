@@ -5,6 +5,7 @@ import { Test } from "forge-std/Test.sol";
 import { Guardian } from "src/OneAuth/Guardian.sol";
 import { OneAuthValidator } from "src/OneAuth/OneAuthValidator.sol";
 import { OneAuthRecoveryBase } from "src/OneAuth/OneAuthRecoveryBase.sol";
+import { GuardianVerifierLib } from "src/OneAuth/lib/GuardianVerifierLib.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
 
 contract GuardianTest is Test {
@@ -497,7 +498,7 @@ contract GuardianRecoveryIntegrationTest is Test {
         // Only 1 signature — threshold is 2. Prepend 0x01 for external guardian.
         bytes memory guardianSig = abi.encodePacked(uint8(0x01), _signEntry(0, PK_0, digest));
 
-        vm.expectRevert(OneAuthRecoveryBase.InvalidGuardianSignature.selector);
+        vm.expectRevert(GuardianVerifierLib.InvalidGuardianSignature.selector);
         validator.recoverWithGuardian(address(this), block.chainid, cred, 0, expiry, guardianSig);
     }
 
@@ -522,7 +523,7 @@ contract GuardianRecoveryIntegrationTest is Test {
             _signEntry(1, PK_STRANGER, digest)
         );
 
-        vm.expectRevert(OneAuthRecoveryBase.InvalidGuardianSignature.selector);
+        vm.expectRevert(GuardianVerifierLib.InvalidGuardianSignature.selector);
         validator.recoverWithGuardian(address(this), block.chainid, cred, 0, expiry, guardianSig);
     }
 

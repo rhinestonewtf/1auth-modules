@@ -496,6 +496,38 @@ contract OneAuthValidatorTest is BaseTest {
     }
 
     /*//////////////////////////////////////////////////////////////////////////
+                              VALIDATE SIGNATURE FOR ACCOUNT TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function test_ValidateSignatureForAccount_RegularSigning() public {
+        _install1(); // keyId 0
+
+        (uint256 r, uint256 s, string memory clientDataJSON) = _createValidWebAuthnSig(TEST_DIGEST);
+        bytes memory sig = _buildRegularSignature(0, r, s, AUTH_DATA_UV, clientDataJSON);
+
+        bool result = validator.validateSignatureForAccount(address(this), TEST_DIGEST, sig);
+        assertTrue(result, "Should validate signature for account");
+    }
+
+    function test_ValidateSignatureForAccount_ReturnsFalse_WhenNotInitialized() public view {
+        bytes memory sig =
+            _buildRegularSignature(0, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST));
+
+        bool result = validator.validateSignatureForAccount(address(this), TEST_DIGEST, sig);
+        assertFalse(result, "Should return false when account not initialized");
+    }
+
+    function test_ValidateSignatureForAccount_ReturnsFalse_WhenWrongKeyId() public {
+        _install1(); // only keyId 0
+
+        bytes memory sig =
+            _buildRegularSignature(1, SIG_R, SIG_S, AUTH_DATA, _buildClientDataJSON(TEST_DIGEST));
+
+        bool result = validator.validateSignatureForAccount(address(this), TEST_DIGEST, sig);
+        assertFalse(result, "Should return false with wrong keyId");
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
                               STATELESS VALIDATION TESTS
     //////////////////////////////////////////////////////////////////////////*/
 

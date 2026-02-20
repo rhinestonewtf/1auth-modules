@@ -9,6 +9,7 @@ use module::OneAuthValidator;
 use wasm_bindgen::prelude::*;
 
 const MODULE_ADDRESS: &str = "0x6B8Fb8E8862a752913Ed5aDa5696be2C381437e5";
+const APP_MODULE_ADDRESS: &str = "0x0000000000000000000000000000000000000000"; // placeholder until deployed
 const VALIDATOR: OneAuthValidator = OneAuthValidator;
 
 // ── onInstall / onUninstall ──
@@ -24,6 +25,21 @@ pub fn wasm_encode_install(input_json: &str) -> Result<String, JsError> {
 
     let result = serde_json::json!({
         "address": MODULE_ADDRESS,
+        "initData": hex_str,
+    });
+    Ok(result.to_string())
+}
+
+// ── App validator onInstall ──
+
+#[wasm_bindgen(js_name = encodeAppInstall)]
+pub fn wasm_encode_app_install(input_json: &str) -> Result<String, JsError> {
+    let input: encode::AppInstallInput =
+        serde_json::from_str(input_json).map_err(|e| JsError::new(&e.to_string()))?;
+    let (hex_str, _) = encode::encode_app_install(&input).map_err(|e| JsError::new(&e))?;
+
+    let result = serde_json::json!({
+        "address": APP_MODULE_ADDRESS,
         "initData": hex_str,
     });
     Ok(result.to_string())
@@ -237,6 +253,21 @@ pub fn wasm_get_recovery_digest(input_json: &str) -> Result<String, JsError> {
 #[wasm_bindgen(js_name = getRecoveryTypehash)]
 pub fn wasm_get_recovery_typehash() -> String {
     format!("0x{}", hex::encode(digest::recover_passkey_typehash()))
+}
+
+// ── App Recovery EIP-712 ──
+
+#[wasm_bindgen(js_name = getAppRecoveryDigest)]
+pub fn wasm_get_app_recovery_digest(input_json: &str) -> Result<String, JsError> {
+    let input: digest::AppRecoveryDigestInput =
+        serde_json::from_str(input_json).map_err(|e| JsError::new(&e.to_string()))?;
+    let d = digest::app_recovery_digest(&input).map_err(|e| JsError::new(&e))?;
+    Ok(format!("0x{}", hex::encode(d)))
+}
+
+#[wasm_bindgen(js_name = getAppRecoveryTypehash)]
+pub fn wasm_get_app_recovery_typehash() -> String {
+    format!("0x{}", hex::encode(digest::recover_app_validator_typehash()))
 }
 
 // ── Merkle helpers ──

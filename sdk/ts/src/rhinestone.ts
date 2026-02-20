@@ -1,6 +1,6 @@
 import type { Address, Hex } from "viem";
-import { encodeInstall, encodeSignature, MODULE_ADDRESS } from "./oneauth.js";
-import type { InstallInput, StatefulSignatureConfig } from "./types.js";
+import { encodeInstall, encodeAppInstall, encodeSignature, MODULE_ADDRESS, APP_MODULE_ADDRESS } from "./oneauth.js";
+import type { InstallInput, AppInstallInput, StatefulSignatureConfig } from "./types.js";
 
 /**
  * Rhinestone module-sdk compatible Module type.
@@ -100,4 +100,42 @@ const MOCK_SIGNATURE: Hex =
   "414141414141414141414141414141414141414141414141414141414141414141414141414141414141" +
   "413d227d") as Hex;
 
+/**
+ * Create a Rhinestone-compatible Module object for OneAuthAppValidator.
+ *
+ * NOTE: When computing digests for signing, use the **main validator's address**
+ * (not the app validator's), since the EIP-712 domain uses verifyingContract = mainValidator.
+ *
+ * Usage with permissionless.js:
+ * ```ts
+ * const module = getOneAuthAppValidator({
+ *   mainAccount: "0xMainAccountAddress",
+ * });
+ * const hash = await smartAccountClient.installModule(module);
+ * ```
+ */
+export function getOneAuthAppValidator(
+  input: AppInstallInput & { hook?: Address }
+): Module {
+  const { address, initData } = encodeAppInstall(input);
+  return {
+    address,
+    module: address,
+    initData,
+    deInitData: "0x",
+    additionalContext: "0x",
+    type: "validator",
+    ...(input.hook ? { hook: input.hook } : {}),
+  };
+}
+
+/**
+ * Mock signature for gas estimation with OneAuthAppValidator.
+ * Same format as the main validator since it uses the same signature format.
+ */
+export function getOneAuthAppValidatorMockSignature(): Hex {
+  return MOCK_SIGNATURE;
+}
+
 export { MODULE_ADDRESS as ONEAUTH_VALIDATOR_ADDRESS };
+export { APP_MODULE_ADDRESS as ONEAUTH_APP_VALIDATOR_ADDRESS };

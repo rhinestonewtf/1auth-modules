@@ -5,6 +5,8 @@ export function buildMerkleTree(leaves_json: string): string;
 
 export function encodeAddCredential(input_json: string): string;
 
+export function encodeAppInstall(input_json: string): string;
+
 export function encodeDualGuardianSig(user_sig_hex: string, external_sig_hex: string): string;
 
 export function encodeGuardianEntries(entries_json: string): string;
@@ -20,6 +22,10 @@ export function encodeSingleGuardianSig(guardian_type: number, sig_hex: string):
 export function encodeStatefulSignature(config_json: string, webauthn_auth_hex: string): string;
 
 export function encodeStatelessData(config_json: string): string;
+
+export function getAppRecoveryDigest(input_json: string): string;
+
+export function getAppRecoveryTypehash(): string;
 
 /**
  * Prepare digest(s) with EIP-712 challenge wrapping.

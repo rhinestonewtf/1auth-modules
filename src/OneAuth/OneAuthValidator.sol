@@ -302,6 +302,29 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
     }
 
     /**
+     * @notice Validate a signature against a specific account's stored credentials
+     * @dev Exposes the internal _validateSignatureWithConfig for use by delegated validators
+     *      (e.g., OneAuthAppValidator). The EIP-712 domain (including verifyingContract = address(this))
+     *      is computed by this contract, so passkeys sign the same challenge regardless of whether
+     *      validation is triggered directly or through a delegated validator.
+     * @param account The account whose credentials to verify against
+     * @param digest The hash to validate
+     * @param data The packed signature data (same format as userOp.signature)
+     * @return True if the signature is valid for a credential stored under `account`
+     */
+    function validateSignatureForAccount(
+        address account,
+        bytes32 digest,
+        bytes calldata data
+    )
+        external
+        view
+        returns (bool)
+    {
+        return _validateSignatureWithConfig(account, digest, data);
+    }
+
+    /**
      * @notice ERC-7579 stateless validation extension -- credentials are provided externally
      *         in `data` rather than fetched from on-chain storage
      * @dev Unlike the stateful validateUserOp / isValidSignatureWithSender paths, this function

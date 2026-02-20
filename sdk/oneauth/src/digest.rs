@@ -308,6 +308,59 @@ pub fn recovery_digest(input: &RecoveryDigestInput) -> Result<[u8; 32], String> 
     Ok(keccak256(&buf))
 }
 
+// ── App Recovery EIP-712 ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppRecoveryDigestInput {
+    pub account: HexAddress,
+    pub chain_id: u64,
+    pub new_main_account: HexAddress,
+    pub nonce: HexU256,
+    pub expiry: u64,
+    pub verifying_contract: HexAddress,
+}
+
+/// keccak256("RecoverAppValidator(address account,uint256 chainId,address newMainAccount,uint256 nonce,uint48 expiry)")
+pub fn recover_app_validator_typehash() -> [u8; 32] {
+    keccak256(
+        b"RecoverAppValidator(address account,uint256 chainId,address newMainAccount,uint256 nonce,uint48 expiry)",
+    )
+}
+
+/// structHash = keccak256(abi.encode(typehash, account, chainId, newMainAccount, nonce, expiry))
+pub fn app_recovery_struct_hash(input: &AppRecoveryDigestInput) -> Result<[u8; 32], String> {
+    let typehash = recover_app_validator_typehash();
+    let account = parse_address(&input.account)?;
+    let chain_id = u256_from_u64(input.chain_id);
+    let new_main_account = parse_address(&input.new_main_account)?;
+    let nonce = parse_u256(&input.nonce)?;
+    let expiry = u256_from_u64(input.expiry);
+
+    let mut buf = Vec::with_capacity(6 * 32);
+    buf.extend_from_slice(&typehash);
+    buf.extend_from_slice(&account);
+    buf.extend_from_slice(&chain_id);
+    buf.extend_from_slice(&new_main_account);
+    buf.extend_from_slice(&nonce);
+    buf.extend_from_slice(&expiry);
+
+    Ok(keccak256(&buf))
+}
+
+/// Full app recovery EIP-712 digest (uses domain sans chainId).
+pub fn app_recovery_digest(input: &AppRecoveryDigestInput) -> Result<[u8; 32], String> {
+    let contract = parse_address_raw(&input.verifying_contract)?;
+    let domain_sep = domain_separator_sans_chain_id(&contract);
+    let struct_hash = app_recovery_struct_hash(input)?;
+
+    let mut buf = Vec::with_capacity(66);
+    buf.extend_from_slice(&[0x19, 0x01]);
+    buf.extend_from_slice(&domain_sep);
+    buf.extend_from_slice(&struct_hash);
+
+    Ok(keccak256(&buf))
+}
+
 // ── Helpers ──
 
 fn parse_address(addr: &str) -> Result<[u8; 32], String> {
@@ -496,5 +549,28 @@ mod tests {
         };
         let digest = recovery_digest(&input).unwrap();
         assert_ne!(digest, [0u8; 32]);
+    }
+
+    #[test]
+    fn app_recovery_digest_roundtrip() {
+        let input = AppRecoveryDigestInput {
+            account: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
+            chain_id: 1,
+            new_main_account: "0x0000000000000000000000000000000000000001".to_string(),
+            nonce: "0x01".to_string(),
+            expiry: 1700000000,
+            verifying_contract: format!("0x{}", hex::encode(TEST_CONTRACT)),
+        };
+        let digest = app_recovery_digest(&input).unwrap();
+        assert_ne!(digest, [0u8; 32]);
+    }
+
+    #[test]
+    fn app_recovery_typehash_is_deterministic() {
+        let h = recover_app_validator_typehash();
+        assert_ne!(h, [0u8; 32]);
+        assert_eq!(h, recover_app_validator_typehash());
+        // Different from passkey recovery typehash
+        assert_ne!(h, recover_passkey_typehash());
     }
 }

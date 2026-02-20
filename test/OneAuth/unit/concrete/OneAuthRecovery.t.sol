@@ -5,6 +5,7 @@ import { BaseTest } from "test/Base.t.sol";
 import { OneAuthValidator } from "src/OneAuth/OneAuthValidator.sol";
 import { IOneAuthValidator } from "src/OneAuth/IOneAuthValidator.sol";
 import { OneAuthRecoveryBase } from "src/OneAuth/OneAuthRecoveryBase.sol";
+import { GuardianVerifierLib } from "src/OneAuth/lib/GuardianVerifierLib.sol";
 import { ERC7579HybridValidatorBase, ERC7579ValidatorBase } from "modulekit/Modules.sol";
 import { WebAuthn } from "solady/utils/WebAuthn.sol";
 import { PackedUserOperation, getEmptyUserOperation } from "test/utils/ERC4337.sol";
@@ -435,7 +436,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
-        vm.expectRevert(OneAuthRecoveryBase.GuardianNotConfigured.selector);
+        vm.expectRevert(GuardianVerifierLib.GuardianNotConfigured.selector);
         validator.recoverWithGuardian(address(this), block.chainid, cred, 0, expiry, hex"00");
     }
 
@@ -445,7 +446,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
-        vm.expectRevert(OneAuthRecoveryBase.InvalidGuardianSignature.selector);
+        vm.expectRevert(GuardianVerifierLib.InvalidGuardianSignature.selector);
         validator.recoverWithGuardian(address(this), block.chainid, cred, 0, expiry, hex"00");
     }
 

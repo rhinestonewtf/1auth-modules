@@ -123,11 +123,13 @@
 import { type Hex, type Address, hashTypedData } from "viem";
 import type {
   InstallInput,
+  AppInstallInput,
   DigestResult,
   MerkleProofResult,
   StatefulSignatureConfig,
   StatelessSignatureConfig,
   RecoveryDigestInput,
+  AppRecoveryDigestInput,
   AddCredentialInput,
   SetGuardianConfigInput,
   GuardianEntry,
@@ -150,10 +152,16 @@ import {
   getPasskeyMultichainTypedData as wasmPasskeyMultichainTypedData,
   getRecoveryDigest as wasmGetRecoveryDigest,
   getRecoveryTypehash as wasmGetRecoveryTypehash,
+  encodeAppInstall as wasmEncodeAppInstall,
+  getAppRecoveryDigest as wasmGetAppRecoveryDigest,
+  getAppRecoveryTypehash as wasmGetAppRecoveryTypehash,
 } from "./wasm/oneauth/oneauth.js";
 
 /** Deployed OneAuthValidator module address. */
 const MODULE_ADDRESS: Address = "0x6B8Fb8E8862a752913Ed5aDa5696be2C381437e5";
+
+/** Deployed OneAuthAppValidator module address (placeholder until deployed). */
+const APP_MODULE_ADDRESS: Address = "0x0000000000000000000000000000000000000000";
 
 // ── EIP-712 typed data ──
 
@@ -238,6 +246,29 @@ export function encodeInstall(input: InstallInput): { address: Address; initData
     guardian_threshold: input.guardianThreshold ?? 0,
   });
   const result = JSON.parse(wasmEncodeInstall(wasmInput));
+  return { address: result.address as Address, initData: result.initData as Hex };
+}
+
+// ── App validator install encoding ──
+
+/**
+ * Encode `onInstall` calldata for the OneAuthAppValidator module.
+ * Returns the module address and ABI-encoded init data.
+ *
+ * NOTE: When computing digests for signing, use the **main validator's address**
+ * (not the app validator's), since the EIP-712 domain uses verifyingContract = mainValidator.
+ *
+ * @param input.mainAccount - The main account whose passkey credentials to reuse
+ * @returns `{ address, initData }` — pass to ERC-7579 installModule
+ */
+export function encodeAppInstall(input: AppInstallInput): { address: Address; initData: Hex } {
+  const wasmInput = JSON.stringify({
+    main_account: input.mainAccount,
+    user_guardian: input.userGuardian ?? "0x0000000000000000000000000000000000000000",
+    external_guardian: input.externalGuardian ?? "0x0000000000000000000000000000000000000000",
+    guardian_threshold: input.guardianThreshold ?? 0,
+  });
+  const result = JSON.parse(wasmEncodeAppInstall(wasmInput));
   return { address: result.address as Address, initData: result.initData as Hex };
 }
 
@@ -534,6 +565,39 @@ export function getRecoveryTypehash(): Hex {
   return wasmGetRecoveryTypehash() as Hex;
 }
 
+// ── App Recovery ──
+
+/**
+ * Compute the EIP-712 app recovery digest that must be signed by guardian(s)
+ * to change the mainAccount pointer on an OneAuthAppValidator.
+ *
+ * Uses a chain-agnostic domain separator (no chainId in domain) with chainId embedded
+ * in the struct hash -- this enables cross-chain recovery when chainId=0.
+ *
+ * @param input.account - Smart account address being recovered
+ * @param input.chainId - Target chain (0 = valid on any chain)
+ * @param input.newMainAccount - New main account address to point to
+ * @param input.nonce - Unique nonce (hex string). Each nonce can only be used once.
+ * @param input.expiry - Unix timestamp after which the recovery message expires
+ * @param input.verifyingContract - OneAuthAppValidator address (defaults to APP_MODULE_ADDRESS)
+ */
+export function getAppRecoveryDigest(input: AppRecoveryDigestInput): Hex {
+  const wasmInput = JSON.stringify({
+    account: input.account,
+    chain_id: input.chainId,
+    new_main_account: input.newMainAccount,
+    nonce: input.nonce,
+    expiry: input.expiry,
+    verifying_contract: input.verifyingContract ?? APP_MODULE_ADDRESS,
+  });
+  return wasmGetAppRecoveryDigest(wasmInput) as Hex;
+}
+
+/** Get the `RecoverAppValidator(...)` EIP-712 typehash constant. */
+export function getAppRecoveryTypehash(): Hex {
+  return wasmGetAppRecoveryTypehash() as Hex;
+}
+
 // ── Merkle tree ──
 
 /**
@@ -561,7 +625,7 @@ export function verifyMerkleProof(proof: Hex[], root: Hex, leaf: Hex): boolean {
 
 // ── Helpers ──
 
-export { MODULE_ADDRESS };
+export { MODULE_ADDRESS, APP_MODULE_ADDRESS };
 
 function hexToBytes32(hex: Hex): number[] {
   const s = hex.startsWith("0x") ? hex.slice(2) : hex;

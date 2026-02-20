@@ -2,6 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const encodeInstall: (a: number, b: number) => [number, number, number, number];
+export const encodeAppInstall: (a: number, b: number) => [number, number, number, number];
 export const encodeAddCredential: (a: number, b: number) => [number, number, number, number];
 export const encodeRemoveCredential: (a: number) => [number, number];
 export const encodeSetGuardianConfig: (a: number, b: number) => [number, number, number, number];
@@ -17,6 +18,8 @@ export const encodeStatefulSignature: (a: number, b: number, c: number, d: numbe
 export const encodeStatelessData: (a: number, b: number) => [number, number, number, number];
 export const getRecoveryDigest: (a: number, b: number) => [number, number, number, number];
 export const getRecoveryTypehash: () => [number, number];
+export const getAppRecoveryDigest: (a: number, b: number) => [number, number, number, number];
+export const getAppRecoveryTypehash: () => [number, number];
 export const buildMerkleTree: (a: number, b: number) => [number, number, number, number];
 export const verifyMerkleProof: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const __wbindgen_externrefs: WebAssembly.Table;

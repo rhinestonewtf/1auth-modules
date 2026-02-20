@@ -82,3 +82,20 @@ export interface GuardianEntry {
   id: number;
   sig: Hex;
 }
+
+export interface AppInstallInput {
+  /** The main account whose passkey credentials this app account will reuse. */
+  mainAccount: Address;
+  userGuardian?: Address;
+  externalGuardian?: Address;
+  guardianThreshold?: number;
+}
+
+export interface AppRecoveryDigestInput {
+  account: Address;
+  chainId: number;
+  newMainAccount: Address;
+  nonce: Hex;
+  expiry: number;
+  verifyingContract?: Address;
+}
