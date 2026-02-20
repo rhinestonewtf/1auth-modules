@@ -61,13 +61,10 @@ contract OneAuthInvariantTest is Test {
             })
         );
 
-        bytes4[] memory recoverySelectors = new bytes4[](6);
+        bytes4[] memory recoverySelectors = new bytes4[](3);
         recoverySelectors[0] = RecoveryHandler.handler_setUserGuardian.selector;
-        recoverySelectors[1] = RecoveryHandler.handler_confirmGuardian.selector;
-        recoverySelectors[2] = RecoveryHandler.handler_cancelGuardianChange.selector;
-        recoverySelectors[3] = RecoveryHandler.handler_setGuardianTimelock.selector;
-        recoverySelectors[4] = RecoveryHandler.handler_recoverWithGuardian.selector;
-        recoverySelectors[5] = RecoveryHandler.handler_warpTime.selector;
+        recoverySelectors[1] = RecoveryHandler.handler_recoverWithGuardian.selector;
+        recoverySelectors[2] = RecoveryHandler.handler_warpTime.selector;
         targetSelector(
             FuzzSelector({
                 addr: address(recoveryHandler),
@@ -157,14 +154,15 @@ contract OneAuthInvariantTest is Test {
             address actor = actors[i];
             if (!credentialHandler.ghost_isInstalled(actor)) continue;
 
+            (address onChainUserGuardian, address onChainExternalGuardian,) = validator.guardianConfig(actor);
             assertEq(
                 recoveryHandler.ghost_userGuardian(actor),
-                validator.userGuardian(actor),
+                onChainUserGuardian,
                 "Ghost user guardian must match on-chain"
             );
             assertEq(
                 recoveryHandler.ghost_externalGuardian(actor),
-                validator.externalGuardian(actor),
+                onChainExternalGuardian,
                 "Ghost external guardian must match on-chain"
             );
         }

@@ -42,7 +42,7 @@ contract OneAuthValidatorFuzzTest is BaseTest {
             pubKeyX: _pubKeyX0,
             pubKeyY: _pubKeyY0
         });
-        validator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0)));
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -64,7 +64,7 @@ contract OneAuthValidatorFuzzTest is BaseTest {
 
         // The overwhelming probability is this will revert with InvalidPublicKey.
         // On the astronomically rare chance it's on-curve, the install succeeds — that's fine.
-        try freshValidator.onInstall(abi.encode(keyIds, creds, address(0), uint48(0))) {
+        try freshValidator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0))) {
             // If it succeeded, the point happens to be on-curve — no assertion needed
         } catch (bytes memory reason) {
             assertEq(

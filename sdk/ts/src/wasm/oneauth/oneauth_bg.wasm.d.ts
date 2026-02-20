@@ -2,6 +2,12 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const encodeInstall: (a: number, b: number) => [number, number, number, number];
+export const encodeAddCredential: (a: number, b: number) => [number, number, number, number];
+export const encodeRemoveCredential: (a: number) => [number, number];
+export const encodeSetGuardianConfig: (a: number, b: number) => [number, number, number, number];
+export const encodeSingleGuardianSig: (a: number, b: number, c: number) => [number, number, number, number];
+export const encodeDualGuardianSig: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+export const encodeGuardianEntries: (a: number, b: number) => [number, number, number, number];
 export const getDigest: (a: number, b: number, c: bigint, d: number, e: number) => [number, number, number, number];
 export const passkeyDigest: (a: number, b: number, c: bigint, d: number, e: number) => [number, number, number, number];
 export const passkeyMultichain: (a: number, b: number, c: number, d: number) => [number, number, number, number];

@@ -11,13 +11,19 @@ import { EIP712Lib } from "./lib/EIP712Lib.sol";
 ///      1. Existing passkey signs an EIP-712 RecoverPasskey message (`recoverWithPasskey`)
 ///      2. Guardian signs the same EIP-712 message (`recoverWithGuardian`)
 ///
-///      Supports two independent guardian types per account:
-///      - **User guardian**: a simple address (typically EOA) stored directly in RecoveryConfig.
+///      Supports two guardian types per account with a configurable threshold:
+///      - **User guardian**: a simple address (typically EOA) stored in GuardianConfig.
 ///        No contract deployment needed — ideal for a single trusted contact.
 ///      - **External guardian**: a Guardian.sol contract (EIP-1271). For M-of-N multisig cases
 ///        that need the full Guardian contract.
-///      Both are optional. Recovery can be authorized by either one, selected via a type byte
-///      prefix in `guardianSig`: `0x00` for user guardian, `0x01` for external guardian.
+///      Both are optional. The **threshold** controls how many guardians must sign:
+///      - threshold=1: recovery can be authorized by either guardian, selected via a type byte
+///        prefix in `guardianSig`: `0x00` for user guardian, `0x01` for external guardian.
+///      - threshold=2: both guardians must sign. The `guardianSig` format is
+///        `[user_sig_len: uint16][user_sig][external_sig]`.
+///
+///      Guardian configuration (addresses + threshold) is set via `setGuardianConfig()`.
+///      All changes take effect immediately.
 ///
 ///      Uses chain-agnostic domain separator with chainId in the struct for cross-chain recovery.
 ///      chainId = 0 means valid on any chain; a non-zero chainId restricts recovery to that chain.
@@ -30,15 +36,6 @@ import { EIP712Lib } from "./lib/EIP712Lib.sol";
 ///        struct, the credential at `keyId` has its public key overwritten in-place,
 ///        preventing the compromised key from being used. When `replace` is false,
 ///        recovery is additive only (new credential added, existing keys remain active).
-///
-///      - Guardian timelock: Guardian changes support an optional timelock. When a non-zero
-///        guardianTimelock is configured and a guardian of the same type already exists,
-///        `setUserGuardian`/`setExternalGuardian` queues the change and the account must call
-///        `confirmGuardian` after the timelock elapses. Initial guardian set (when no guardian
-///        of that type exists) always takes effect immediately regardless of timelock — adding
-///        a guardian only makes the account more secure. When the timelock is zero (the default),
-///        all changes take effect immediately. Only one pending guardian change is allowed at a
-///        time; a new proposal overwrites any existing pending change.
 ///
 ///      - Recovery nonces survive uninstallation: `onUninstall` (in the inheriting contract)
 ///        does NOT clear the `nonceUsed` mapping. This is intentional -- it prevents replay
@@ -53,11 +50,10 @@ abstract contract OneAuthRecoveryBase is EIP712 {
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Emitted when a user guardian address is set or cleared for an account
-    event UserGuardianSet(address indexed account, address indexed guardian);
-
-    /// @notice Emitted when an external guardian address is set or cleared for an account
-    event ExternalGuardianSet(address indexed account, address indexed guardian);
+    /// @notice Emitted when guardian configuration is applied for an account
+    event GuardianConfigSet(
+        address indexed account, address userGuardian, address externalGuardian, uint8 threshold
+    );
 
     /// @notice Emitted when a recovery is executed via an existing passkey signature
     event PasskeyRecoveryExecuted(address indexed account, uint16 indexed newKeyId, uint256 nonce);
@@ -66,12 +62,6 @@ abstract contract OneAuthRecoveryBase is EIP712 {
     event GuardianRecoveryExecuted(
         address indexed account, address indexed guardian, uint16 indexed newKeyId, uint256 nonce
     );
-
-    event GuardianChangeProposed(
-        address indexed account, address indexed newGuardian, bool isExternal, uint48 activatesAt
-    );
-    event GuardianChangeCancelled(address indexed account);
-    event GuardianTimelockSet(address indexed account, uint48 duration);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -101,8 +91,11 @@ abstract contract OneAuthRecoveryBase is EIP712 {
     /// @notice Thrown when guardianSig is empty (no type byte)
     error EmptyGuardianSignature();
 
-    error GuardianTimelockNotElapsed();
-    error NoPendingGuardianChange();
+    /// @notice Thrown when threshold is not 1 or 2
+    error InvalidThreshold();
+
+    /// @notice Thrown when threshold=2 but both guardians are not configured
+    error ThresholdRequiresBothGuardians();
 
     /*//////////////////////////////////////////////////////////////
                                STRUCTS
@@ -116,22 +109,23 @@ abstract contract OneAuthRecoveryBase is EIP712 {
         bool replace;
     }
 
-    /// @notice Per-account recovery configuration with two independent guardian types
+    /// @notice Guardian addresses and signing threshold
+    /// @dev threshold=1: either guardian can authorize recovery alone
+    ///      threshold=2: both guardians must sign
+    ///      threshold=0: treated as 1 (default for zero-initialized storage)
+    struct GuardianConfig {
+        address userGuardian;
+        address externalGuardian;
+        uint8 threshold;
+    }
+
+    /// @notice Per-account recovery configuration
     /// @dev The nonceUsed mapping is intentionally NOT cleared on uninstall to prevent
     ///      replay of old recovery signatures if the module is reinstalled
     struct RecoveryConfig {
-        address userGuardian;
-        address externalGuardian;
-        address pendingGuardian;
-        uint48 guardianActivatesAt;
-        uint48 guardianTimelock;
-        bool pendingIsExternal;
+        GuardianConfig guardian;
         mapping(uint256 nonce => bool) nonceUsed;
     }
-
-    /*//////////////////////////////////////////////////////////////
-                               CONSTANTS
-    //////////////////////////////////////////////////////////////*/
 
     /*//////////////////////////////////////////////////////////////
                                  STATE
@@ -186,90 +180,54 @@ abstract contract OneAuthRecoveryBase is EIP712 {
                               CONFIGURATION
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Internal immediate user guardian set — used by onInstall
-    function _setUserGuardianImmediate(address account, address _guardian) internal {
-        _recoveryConfig[account].userGuardian = _guardian;
-        emit UserGuardianSet(account, _guardian);
-    }
-
-    /// @notice Internal immediate external guardian set — used by onInstall
-    function _setExternalGuardianImmediate(address account, address _guardian) internal {
-        _recoveryConfig[account].externalGuardian = _guardian;
-        emit ExternalGuardianSet(account, _guardian);
-    }
-
-    /// @notice Set or change the user guardian for the caller's account
-    /// @dev Initial set (when no user guardian exists) takes effect immediately regardless of
-    ///      timelock. Subsequent changes are subject to the timelock if configured.
-    ///      A new proposal overwrites any existing pending guardian change (of either type).
-    function setUserGuardian(address _guardian) external {
-        RecoveryConfig storage rc = _recoveryConfig[msg.sender];
-        uint48 timelock = rc.guardianTimelock;
-        if (timelock == 0 || rc.userGuardian == address(0)) {
-            rc.userGuardian = _guardian;
-            emit UserGuardianSet(msg.sender, _guardian);
-        } else {
-            rc.pendingGuardian = _guardian;
-            rc.pendingIsExternal = false;
-            rc.guardianActivatesAt = uint48(block.timestamp) + timelock;
-            emit GuardianChangeProposed(msg.sender, _guardian, false, rc.guardianActivatesAt);
+    /// @notice Internal immediate guardian config set — used by onInstall
+    function _setGuardianConfigImmediate(
+        address account,
+        address _userGuardian,
+        address _externalGuardian,
+        uint8 _threshold
+    )
+        internal
+    {
+        if (_threshold > 2) revert InvalidThreshold();
+        if (_threshold == 2) {
+            if (_userGuardian == address(0) || _externalGuardian == address(0)) {
+                revert ThresholdRequiresBothGuardians();
+            }
         }
+
+        GuardianConfig storage gc = _recoveryConfig[account].guardian;
+        gc.userGuardian = _userGuardian;
+        gc.externalGuardian = _externalGuardian;
+        gc.threshold = _threshold;
+
+        emit GuardianConfigSet(account, _userGuardian, _externalGuardian, _threshold);
     }
 
-    /// @notice Set or change the external guardian for the caller's account
-    /// @dev Initial set (when no external guardian exists) takes effect immediately regardless of
-    ///      timelock. Subsequent changes are subject to the timelock if configured.
-    ///      A new proposal overwrites any existing pending guardian change (of either type).
-    function setExternalGuardian(address _guardian) external {
-        RecoveryConfig storage rc = _recoveryConfig[msg.sender];
-        uint48 timelock = rc.guardianTimelock;
-        if (timelock == 0 || rc.externalGuardian == address(0)) {
-            rc.externalGuardian = _guardian;
-            emit ExternalGuardianSet(msg.sender, _guardian);
-        } else {
-            rc.pendingGuardian = _guardian;
-            rc.pendingIsExternal = true;
-            rc.guardianActivatesAt = uint48(block.timestamp) + timelock;
-            emit GuardianChangeProposed(msg.sender, _guardian, true, rc.guardianActivatesAt);
+    /// @notice Set or change the guardian configuration for the caller's account
+    /// @param _userGuardian Address of the user guardian (address(0) to clear)
+    /// @param _externalGuardian Address of the external guardian (address(0) to clear)
+    /// @param _threshold 1 = either guardian, 2 = both required
+    function setGuardianConfig(
+        address _userGuardian,
+        address _externalGuardian,
+        uint8 _threshold
+    )
+        external
+    {
+        if (_threshold == 0 || _threshold > 2) revert InvalidThreshold();
+        if (_threshold == 2) {
+            if (_userGuardian == address(0) || _externalGuardian == address(0)) {
+                revert ThresholdRequiresBothGuardians();
+            }
         }
-    }
 
-    /// @notice Confirm a pending guardian change after the timelock has elapsed
-    function confirmGuardian() external {
-        RecoveryConfig storage rc = _recoveryConfig[msg.sender];
-        if (rc.guardianActivatesAt == 0) revert NoPendingGuardianChange();
-        if (block.timestamp < rc.guardianActivatesAt) revert GuardianTimelockNotElapsed();
+        GuardianConfig storage gc = _recoveryConfig[msg.sender].guardian;
+        gc.userGuardian = _userGuardian;
+        gc.externalGuardian = _externalGuardian;
+        gc.threshold = _threshold;
 
-        address newGuardian = rc.pendingGuardian;
-        bool isExternal = rc.pendingIsExternal;
-
-        delete rc.pendingGuardian;
-        delete rc.guardianActivatesAt;
-        delete rc.pendingIsExternal;
-
-        if (isExternal) {
-            rc.externalGuardian = newGuardian;
-            emit ExternalGuardianSet(msg.sender, newGuardian);
-        } else {
-            rc.userGuardian = newGuardian;
-            emit UserGuardianSet(msg.sender, newGuardian);
-        }
-    }
-
-    /// @notice Cancel a pending guardian change
-    function cancelGuardianChange() external {
-        RecoveryConfig storage rc = _recoveryConfig[msg.sender];
-        if (rc.guardianActivatesAt == 0) revert NoPendingGuardianChange();
-        delete rc.pendingGuardian;
-        delete rc.guardianActivatesAt;
-        delete rc.pendingIsExternal;
-        emit GuardianChangeCancelled(msg.sender);
-    }
-
-    /// @notice Set the guardian timelock duration for the caller's account
-    function setGuardianTimelock(uint48 duration) external {
-        _recoveryConfig[msg.sender].guardianTimelock = duration;
-        emit GuardianTimelockSet(msg.sender, duration);
+        emit GuardianConfigSet(msg.sender, _userGuardian, _externalGuardian, _threshold);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -304,10 +262,10 @@ abstract contract OneAuthRecoveryBase is EIP712 {
     }
 
     /**
-     * @notice Recovers an account by adding or replacing a credential, authorized by a guardian
-     * @dev Callable by anyone (permissionless). The first byte of `guardianSig` selects the
-     *      guardian type: `0x00` for user guardian, `0x01` for external guardian. The remaining
-     *      bytes are the actual signature passed to `SignatureCheckerLib`.
+     * @notice Recovers an account by adding or replacing a credential, authorized by guardian(s)
+     * @dev Callable by anyone (permissionless). Signature format depends on the account's threshold:
+     *      - threshold=1: `[type_byte][sig]` where type_byte is `0x00` (user) or `0x01` (external)
+     *      - threshold=2: `[user_sig_len: uint16][user_sig][external_sig]` (both must sign)
      */
     function recoverWithGuardian(
         address account,
@@ -333,9 +291,30 @@ abstract contract OneAuthRecoveryBase is EIP712 {
     )
         internal
     {
-        (address _guardian, bytes calldata sig) = _resolveGuardian(account, guardianSig);
-
         bytes32 digest = getRecoverDigest(account, chainId, cred, nonce, expiry);
+        GuardianConfig storage gc = _recoveryConfig[account].guardian;
+        uint8 t = gc.threshold;
+
+        // threshold == 0 means default (1) for backward compatibility
+        if (t <= 1) {
+            _executeSingleGuardianRecovery(account, gc, digest, cred, nonce, guardianSig);
+        } else {
+            _executeDualGuardianRecovery(account, gc, digest, cred, nonce, guardianSig);
+        }
+    }
+
+    /// @dev Single-guardian recovery path (threshold=1). Format: [type_byte][sig]
+    function _executeSingleGuardianRecovery(
+        address account,
+        GuardianConfig storage gc,
+        bytes32 digest,
+        NewCredential calldata cred,
+        uint256 nonce,
+        bytes calldata guardianSig
+    )
+        internal
+    {
+        (address _guardian, bytes calldata sig) = _resolveGuardian(gc, guardianSig);
 
         if (!SignatureCheckerLib.isValidSignatureNowCalldata(_guardian, digest, sig)) {
             revert InvalidGuardianSignature();
@@ -346,9 +325,44 @@ abstract contract OneAuthRecoveryBase is EIP712 {
         emit GuardianRecoveryExecuted(account, _guardian, cred.keyId, nonce);
     }
 
+    /// @dev Dual-guardian recovery path (threshold=2). Format: [user_sig_len: uint16][user_sig][external_sig]
+    function _executeDualGuardianRecovery(
+        address account,
+        GuardianConfig storage gc,
+        bytes32 digest,
+        NewCredential calldata cred,
+        uint256 nonce,
+        bytes calldata guardianSig
+    )
+        internal
+    {
+        if (guardianSig.length < 2) revert EmptyGuardianSignature();
+
+        uint256 userSigEnd = 2 + uint256(uint16(bytes2(guardianSig[0:2])));
+        if (guardianSig.length < userSigEnd) revert InvalidGuardianSignature();
+
+        if (gc.userGuardian == address(0) || gc.externalGuardian == address(0)) {
+            revert GuardianNotConfigured();
+        }
+
+        if (!SignatureCheckerLib.isValidSignatureNowCalldata(gc.userGuardian, digest, guardianSig[2:userSigEnd]))
+        {
+            revert InvalidGuardianSignature();
+        }
+        if (!SignatureCheckerLib.isValidSignatureNowCalldata(gc.externalGuardian, digest, guardianSig[userSigEnd:]))
+        {
+            revert InvalidGuardianSignature();
+        }
+
+        address emitGuardian = gc.userGuardian;
+        _addCredentialRecovery(account, cred);
+
+        emit GuardianRecoveryExecuted(account, emitGuardian, cred.keyId, nonce);
+    }
+
     /// @dev Parses the type byte prefix from guardianSig and resolves the guardian address
     function _resolveGuardian(
-        address account,
+        GuardianConfig storage gc,
         bytes calldata guardianSig
     )
         internal
@@ -361,9 +375,9 @@ abstract contract OneAuthRecoveryBase is EIP712 {
         sig = guardianSig[1:];
 
         if (guardianType == 0x00) {
-            guardian_ = _recoveryConfig[account].userGuardian;
+            guardian_ = gc.userGuardian;
         } else if (guardianType == 0x01) {
-            guardian_ = _recoveryConfig[account].externalGuardian;
+            guardian_ = gc.externalGuardian;
         } else {
             revert InvalidGuardianType();
         }
@@ -375,37 +389,25 @@ abstract contract OneAuthRecoveryBase is EIP712 {
                               VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Returns the user guardian address configured for an account
-    function userGuardian(address account) external view returns (address) {
-        return _recoveryConfig[account].userGuardian;
+    /// @notice Returns the full guardian configuration for an account
+    function guardianConfig(address account)
+        external
+        view
+        returns (address userGuardian, address externalGuardian, uint8 threshold)
+    {
+        GuardianConfig storage gc = _recoveryConfig[account].guardian;
+        return (gc.userGuardian, gc.externalGuardian, gc.threshold);
     }
 
-    /// @notice Returns the external guardian address configured for an account
-    function externalGuardian(address account) external view returns (address) {
-        return _recoveryConfig[account].externalGuardian;
+    /// @notice Returns the effective guardian threshold for an account (defaults to 1 if unset)
+    function guardianThreshold(address account) external view returns (uint8) {
+        uint8 t = _recoveryConfig[account].guardian.threshold;
+        return t == 0 ? 1 : t;
     }
 
     /// @notice Checks whether a specific recovery nonce has been consumed for an account
     function nonceUsed(address account, uint256 nonce) external view returns (bool) {
         return _recoveryConfig[account].nonceUsed[nonce];
-    }
-
-    /// @notice Returns the guardian timelock duration for an account
-    function guardianTimelock(address account) external view returns (uint48) {
-        return _recoveryConfig[account].guardianTimelock;
-    }
-
-    /// @notice Returns pending guardian change info
-    /// @return pendingGuardian The proposed guardian address (address(0) if none)
-    /// @return isExternal Whether the pending change is for the external guardian
-    /// @return activatesAt Timestamp when the change can be confirmed (0 if none)
-    function pendingGuardianInfo(address account)
-        external
-        view
-        returns (address pendingGuardian, bool isExternal, uint48 activatesAt)
-    {
-        RecoveryConfig storage rc = _recoveryConfig[account];
-        return (rc.pendingGuardian, rc.pendingIsExternal, rc.guardianActivatesAt);
     }
 
     /**

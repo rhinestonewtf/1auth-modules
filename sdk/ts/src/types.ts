@@ -10,6 +10,7 @@ export interface InstallInput {
   credentials: CredentialInput[];
   userGuardian?: Address;
   externalGuardian?: Address;
+  guardianThreshold?: number;
 }
 
 export interface DigestResult {
@@ -56,4 +57,28 @@ export interface RecoveryDigestInput {
   nonce: Hex;
   expiry: number;
   verifyingContract?: Address;
+}
+
+export interface AddCredentialInput {
+  keyId: number;
+  pubKeyX: Hex;
+  pubKeyY: Hex;
+}
+
+export interface SetGuardianConfigInput {
+  userGuardian: Address;
+  externalGuardian: Address;
+  threshold: number;
+}
+
+export interface NewCredential {
+  keyId: number;
+  pubKeyX: Hex;
+  pubKeyY: Hex;
+  replace: boolean;
+}
+
+export interface GuardianEntry {
+  id: number;
+  sig: Hex;
 }
