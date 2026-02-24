@@ -97,12 +97,20 @@ abstract contract OneAuthRecoveryBase is EIP712 {
         bool replace;
     }
 
+    /// @notice Identity data used by guardians for off-chain account verification via JWT
+    struct RecoveryAccountIdentifier {
+        bytes32 identitySalt;
+        bytes32 identityCommitment;
+    }
+
     /// @notice Per-account recovery configuration
-    /// @dev The nonceUsed mapping is intentionally NOT cleared on uninstall to prevent
-    ///      replay of old recovery signatures if the module is reinstalled
+    /// @dev The nonceUsed mapping and identity commitment are intentionally NOT cleared
+    ///      on uninstall to prevent replay of old recovery signatures if the module is
+    ///      reinstalled, and to avoid requiring re-attestation of identity.
     struct RecoveryConfig {
         GuardianVerifierLib.GuardianConfig guardian;
         mapping(uint256 nonce => bool) nonceUsed;
+        RecoveryAccountIdentifier identifier;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -186,10 +194,12 @@ abstract contract OneAuthRecoveryBase is EIP712 {
     /// @param _userGuardian Address of the user guardian (address(0) to clear)
     /// @param _externalGuardian Address of the external guardian (address(0) to clear)
     /// @param _threshold 1 = either guardian, 2 = both required
+    /// @param _identifier Identity data for off-chain guardian verification
     function setGuardianConfig(
         address _userGuardian,
         address _externalGuardian,
-        uint8 _threshold
+        uint8 _threshold,
+        RecoveryAccountIdentifier calldata _identifier
     )
         external
     {
@@ -200,10 +210,13 @@ abstract contract OneAuthRecoveryBase is EIP712 {
             }
         }
 
-        GuardianVerifierLib.GuardianConfig storage gc = _recoveryConfig[msg.sender].guardian;
+        RecoveryConfig storage rc = _recoveryConfig[msg.sender];
+        GuardianVerifierLib.GuardianConfig storage gc = rc.guardian;
         gc.userGuardian = _userGuardian;
         gc.externalGuardian = _externalGuardian;
         gc.threshold = _threshold;
+        rc.identifier.identitySalt = _identifier.identitySalt;
+        rc.identifier.identityCommitment = _identifier.identityCommitment;
 
         emit GuardianConfigSet(msg.sender, _userGuardian, _externalGuardian, _threshold);
     }
@@ -289,6 +302,19 @@ abstract contract OneAuthRecoveryBase is EIP712 {
     /// @notice Checks whether a specific recovery nonce has been consumed for an account
     function nonceUsed(address account, uint256 nonce) external view returns (bool) {
         return _recoveryConfig[account].nonceUsed[nonce];
+    }
+
+    /// @notice Returns the identity data for an account
+    /// @dev Used by guardians off-chain to verify account ownership via JWT.
+    ///      The guardian reads the salt, asks the user to authenticate with their identity
+    ///      provider, then verifies keccak256(abi.encode(salt, userId, email)) matches
+    ///      the stored commitment before signing a recovery digest.
+    function getAccountRecoveryIdentifier(address account)
+        external
+        view
+        returns (RecoveryAccountIdentifier memory)
+    {
+        return _recoveryConfig[account].identifier;
     }
 
     /**

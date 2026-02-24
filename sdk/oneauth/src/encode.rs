@@ -10,9 +10,14 @@ sol! {
         bytes32 pubKeyY;
     }
 
+    struct RecoveryAccountIdentifier {
+        bytes32 identitySalt;
+        bytes32 identityCommitment;
+    }
+
     function addCredential(uint16 keyId, bytes32 pubKeyX, bytes32 pubKeyY);
     function removeCredential(uint16 keyId);
-    function setGuardianConfig(address _userGuardian, address _externalGuardian, uint8 _threshold);
+    function setGuardianConfig(address _userGuardian, address _externalGuardian, uint8 _threshold, RecoveryAccountIdentifier _identifier);
 }
 
 /// Hex-encoded string aliases — we use String instead of alloy Address/U256
@@ -164,6 +169,10 @@ pub struct SetGuardianConfigInput {
     pub user_guardian: HexAddress,
     pub external_guardian: HexAddress,
     pub threshold: u8,
+    /// Random salt stored on-chain for identity verification. Pass None to set bytes32(0).
+    pub identity_salt: Option<HexU256>,
+    /// keccak256(abi.encode(salt, userId, email)) for off-chain guardian verification. Pass None to set bytes32(0).
+    pub identity_commitment: Option<HexU256>,
 }
 
 pub fn encode_set_guardian_config(input: &SetGuardianConfigInput) -> Result<Vec<u8>, String> {
@@ -172,10 +181,26 @@ pub fn encode_set_guardian_config(input: &SetGuardianConfigInput) -> Result<Vec<
     let external_guardian = alloy_primitives::Address::from_str(&input.external_guardian)
         .map_err(|e| format!("invalid external_guardian address: {e}"))?;
 
+    let identity_salt = if let Some(ref s) = input.identity_salt {
+        B256::from_str(s).map_err(|e| format!("invalid identity_salt: {e}"))?
+    } else {
+        B256::ZERO
+    };
+
+    let identity_commitment = if let Some(ref c) = input.identity_commitment {
+        B256::from_str(c).map_err(|e| format!("invalid identity_commitment: {e}"))?
+    } else {
+        B256::ZERO
+    };
+
     let call = setGuardianConfigCall {
         _userGuardian: user_guardian,
         _externalGuardian: external_guardian,
         _threshold: input.threshold,
+        _identifier: RecoveryAccountIdentifier {
+            identitySalt: identity_salt,
+            identityCommitment: identity_commitment,
+        },
     };
     Ok(call.abi_encode())
 }
@@ -276,11 +301,28 @@ mod tests {
             user_guardian: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             external_guardian: "0x0000000000000000000000000000000000000000".to_string(),
             threshold: 1,
+            identity_salt: None,
+            identity_commitment: None,
         };
         let calldata = encode_set_guardian_config(&input).unwrap();
         let expected_selector = &setGuardianConfigCall::SELECTOR;
         assert_eq!(&calldata[..4], expected_selector);
-        assert_eq!(calldata.len(), 4 + 3 * 32); // selector + 3 ABI words
+        assert_eq!(calldata.len(), 4 + 5 * 32); // selector + 5 ABI words
+    }
+
+    #[test]
+    fn encode_set_guardian_config_with_identity() {
+        let input = SetGuardianConfigInput {
+            user_guardian: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
+            external_guardian: "0x0000000000000000000000000000000000000000".to_string(),
+            threshold: 1,
+            identity_salt: Some("0x1111111111111111111111111111111111111111111111111111111111111111".to_string()),
+            identity_commitment: Some("0x2222222222222222222222222222222222222222222222222222222222222222".to_string()),
+        };
+        let calldata = encode_set_guardian_config(&input).unwrap();
+        let expected_selector = &setGuardianConfigCall::SELECTOR;
+        assert_eq!(&calldata[..4], expected_selector);
+        assert_eq!(calldata.len(), 4 + 5 * 32); // selector + 5 ABI words
     }
 
     #[test]
@@ -289,6 +331,8 @@ mod tests {
             user_guardian: "not_an_address".to_string(),
             external_guardian: "0x0000000000000000000000000000000000000000".to_string(),
             threshold: 1,
+            identity_salt: None,
+            identity_commitment: None,
         };
         assert!(encode_set_guardian_config(&input).is_err());
     }

@@ -208,13 +208,15 @@ export declare function encodeAddCredential(input: AddCredentialInput): Hex;
  */
 export declare function encodeRemoveCredential(keyId: number): Hex;
 /**
- * Encode `setGuardianConfig(address, address, uint8)` calldata.
+ * Encode `setGuardianConfig(address, address, uint8, bytes32, bytes32)` calldata.
  * Returns full calldata (4-byte selector + ABI-encoded params).
  * Changes take effect immediately.
  *
  * @param input.userGuardian - User guardian address (use zero address to clear)
  * @param input.externalGuardian - External guardian address (use zero address to clear)
  * @param input.threshold - 1 = either guardian can authorize recovery, 2 = both required
+ * @param input.identitySalt - Random salt stored on-chain (guardian reads it for verification)
+ * @param input.identityCommitment - keccak256(abi.encode(salt, userId, email))
  */
 export declare function encodeSetGuardianConfig(input: SetGuardianConfigInput): Hex;
 /**

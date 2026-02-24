@@ -244,19 +244,23 @@ export function encodeRemoveCredential(keyId) {
 }
 // ── Guardian configuration calldata ──
 /**
- * Encode `setGuardianConfig(address, address, uint8)` calldata.
+ * Encode `setGuardianConfig(address, address, uint8, bytes32, bytes32)` calldata.
  * Returns full calldata (4-byte selector + ABI-encoded params).
  * Changes take effect immediately.
  *
  * @param input.userGuardian - User guardian address (use zero address to clear)
  * @param input.externalGuardian - External guardian address (use zero address to clear)
  * @param input.threshold - 1 = either guardian can authorize recovery, 2 = both required
+ * @param input.identitySalt - Random salt stored on-chain (guardian reads it for verification)
+ * @param input.identityCommitment - keccak256(abi.encode(salt, userId, email))
  */
 export function encodeSetGuardianConfig(input) {
     const wasmInput = JSON.stringify({
         user_guardian: input.userGuardian,
         external_guardian: input.externalGuardian,
         threshold: input.threshold,
+        identity_salt: input.identitySalt ?? null,
+        identity_commitment: input.identityCommitment ?? null,
     });
     return wasmEncodeSetGuardianConfig(wasmInput);
 }

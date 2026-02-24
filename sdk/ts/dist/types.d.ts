@@ -61,6 +61,10 @@ export interface SetGuardianConfigInput {
     userGuardian: Address;
     externalGuardian: Address;
     threshold: number;
+    /** Random salt stored on-chain for identity verification. Guardian reads this from chain. */
+    identitySalt?: Hex;
+    /** keccak256(abi.encode(salt, userId, email)) — computed off-chain */
+    identityCommitment?: Hex;
 }
 export interface NewCredential {
     keyId: number;

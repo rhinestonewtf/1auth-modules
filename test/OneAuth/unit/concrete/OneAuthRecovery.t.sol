@@ -158,13 +158,13 @@ contract OneAuthRecoveryTest is BaseTest {
     //////////////////////////////////////////////////////////////////////////*/
 
     function test_SetGuardianConfig_Immediate() public {
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
         { (address ug,,) = validator.guardianConfig(address(this)); assertEq(ug, address(mockGuardian)); }
     }
 
     function test_ProposeGuardian_ToZero() public {
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
-        validator.setGuardianConfig(address(0), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
+        validator.setGuardianConfig(address(0), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
         { (address ug,,) = validator.guardianConfig(address(this)); assertEq(ug, address(0)); }
     }
 
@@ -181,11 +181,63 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_OnUninstall_ClearsGuardian() public {
         _install1();
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
         { (address ug,,) = validator.guardianConfig(address(this)); assertEq(ug, address(mockGuardian)); }
 
         validator.onUninstall("");
         { (address ug2,,) = validator.guardianConfig(address(this)); assertEq(ug2, address(0)); }
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                          IDENTITY COMMITMENT TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function test_SetGuardianConfig_WithIdentityCommitment() public {
+        _install1();
+        bytes32 salt = keccak256("test-salt");
+        bytes32 commitment = keccak256(abi.encode(salt, "user123", "user@example.com"));
+
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(salt, commitment));
+
+        OneAuthRecoveryBase.RecoveryAccountIdentifier memory id = validator.getAccountRecoveryIdentifier(address(this));
+        assertEq(id.identitySalt, salt);
+        assertEq(id.identityCommitment, commitment);
+    }
+
+    function test_SetGuardianConfig_UpdateIdentityCommitment() public {
+        _install1();
+        bytes32 salt1 = keccak256("salt1");
+        bytes32 commitment1 = keccak256(abi.encode(salt1, "user1", "email1"));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(salt1, commitment1));
+
+        bytes32 salt2 = keccak256("salt2");
+        bytes32 commitment2 = keccak256(abi.encode(salt2, "user2", "email2"));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(salt2, commitment2));
+
+        OneAuthRecoveryBase.RecoveryAccountIdentifier memory id = validator.getAccountRecoveryIdentifier(address(this));
+        assertEq(id.identitySalt, salt2);
+        assertEq(id.identityCommitment, commitment2);
+    }
+
+    function test_GetAccountRecoveryIdentifier_DefaultsToZero() public {
+        _install1();
+        OneAuthRecoveryBase.RecoveryAccountIdentifier memory id = validator.getAccountRecoveryIdentifier(address(this));
+        assertEq(id.identitySalt, bytes32(0));
+        assertEq(id.identityCommitment, bytes32(0));
+    }
+
+    function test_GetAccountRecoveryIdentifier_SurvivesUninstall() public {
+        _install1();
+        bytes32 salt = keccak256("survive-salt");
+        bytes32 commitment = keccak256(abi.encode(salt, "uid", "mail"));
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(salt, commitment));
+
+        validator.onUninstall("");
+        assertFalse(validator.isInitialized(address(this)));
+
+        OneAuthRecoveryBase.RecoveryAccountIdentifier memory id = validator.getAccountRecoveryIdentifier(address(this));
+        assertEq(id.identitySalt, salt);
+        assertEq(id.identityCommitment, commitment);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -288,7 +340,7 @@ contract OneAuthRecoveryTest is BaseTest {
         _install1();
 
         // Mark nonce 42 as used by doing a guardian recovery first
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(5, _pubKeyX1, _pubKeyY1);
         bytes32 digest = validator.getRecoverDigest(address(this), block.chainid, cred, 42, expiry);
@@ -348,7 +400,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithPasskey_ChainIdZero_AnyChain() public {
         _install1();
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
@@ -365,7 +417,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_Success() public {
         _install1();
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 0;
@@ -385,7 +437,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_NonceMarkedUsed() public {
         _install1();
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 7;
@@ -403,7 +455,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_Expired() public {
         _install1();
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
         vm.warp(2000);
@@ -413,7 +465,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_NonceAlreadyUsed() public {
         _install1();
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 0;
@@ -442,7 +494,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_InvalidGuardianSignature() public {
         _install1();
-        validator.setGuardianConfig(address(rejectingGuardian), address(0), 1);
+        validator.setGuardianConfig(address(rejectingGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
@@ -452,7 +504,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_ZeroPubKey() public {
         _install1();
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, bytes32(0), bytes32(0));
@@ -465,7 +517,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_DuplicateCredKey() public {
         _install1(); // keyId 0
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(0, _pubKeyX1, _pubKeyY1);
@@ -478,7 +530,7 @@ contract OneAuthRecoveryTest is BaseTest {
     }
 
     function test_RecoverWithGuardian_RevertWhen_NotInitialized() public {
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
@@ -492,7 +544,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_RevertWhen_InvalidChainId() public {
         _install1();
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
@@ -502,7 +554,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_ChainIdZero_AnyChain() public {
         _install1();
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         OneAuthRecoveryBase.NewCredential memory cred = _newCred(1, _pubKeyX1, _pubKeyY1);
@@ -521,7 +573,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_MultipleDifferentNonces() public {
         _install1();
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
 
@@ -553,7 +605,7 @@ contract OneAuthRecoveryTest is BaseTest {
     function test_RecoverWithGuardian_ReplaceCredential() public {
         _install1(); // keyId 0
         validator.addCredential(5, _pubKeyX1, _pubKeyY1); // keyId 5
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         // Replace keyId 5 in-place with new pubkey (replace=true)
@@ -575,7 +627,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_ReplaceCredential_KeyIdZero() public {
         _install1(); // keyId 0
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         // Replace keyId 0 in-place (verifies bool replace works for keyId 0)
@@ -597,7 +649,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_ReplaceCredential_RevertWhen_NotFound() public {
         _install1(); // only keyId 0
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         // Try to replace non-existent keyId 99
@@ -624,7 +676,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoveryNonce_PersistsAcrossReinstall() public {
         _install1();
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 42;
@@ -656,7 +708,7 @@ contract OneAuthRecoveryTest is BaseTest {
 
     function test_RecoverWithGuardian_EmitsEvent() public {
         _install1();
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
 
         uint48 expiry = uint48(block.timestamp + 1000);
         uint256 nonce = 5;
@@ -677,7 +729,7 @@ contract OneAuthRecoveryTest is BaseTest {
         vm.expectEmit(true, true, false, false);
         emit OneAuthRecoveryBase.GuardianConfigSet(address(this), address(mockGuardian), address(0), 1);
 
-        validator.setGuardianConfig(address(mockGuardian), address(0), 1);
+        validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)));
     }
 
 }
