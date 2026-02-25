@@ -202,7 +202,14 @@ pub fn encode_set_guardian_config(input: &SetGuardianConfigInput) -> Result<Vec<
             identityCommitment: identity_commitment,
         },
     };
-    Ok(call.abi_encode())
+    let mut bytes = call.abi_encode();
+    // alloy-sol-types v0.8 computes wrong selector for struct params — it flattens
+    // RecoveryAccountIdentifier instead of encoding as tuple. Parameter encoding is
+    // correct (static tuple is inline), only the 4-byte selector differs.
+    // Correct selector: keccak256("setGuardianConfig(address,address,uint8,(bytes32,bytes32))")
+    // From artifacts/OneAuthValidator/OneAuthValidator.json methodIdentifiers.
+    bytes[..4].copy_from_slice(&[0xcb, 0xf1, 0xca, 0x32]);
+    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -305,8 +312,10 @@ mod tests {
             identity_commitment: None,
         };
         let calldata = encode_set_guardian_config(&input).unwrap();
-        let expected_selector = &setGuardianConfigCall::SELECTOR;
-        assert_eq!(&calldata[..4], expected_selector);
+        // Solidity selector: keccak256("setGuardianConfig(address,address,uint8,(bytes32,bytes32))")[..4]
+        // From artifacts/OneAuthValidator/OneAuthValidator.json methodIdentifiers
+        let expected_selector: [u8; 4] = [0xcb, 0xf1, 0xca, 0x32];
+        assert_eq!(&calldata[..4], &expected_selector);
         assert_eq!(calldata.len(), 4 + 5 * 32); // selector + 5 ABI words
     }
 
@@ -320,8 +329,7 @@ mod tests {
             identity_commitment: Some("0x2222222222222222222222222222222222222222222222222222222222222222".to_string()),
         };
         let calldata = encode_set_guardian_config(&input).unwrap();
-        let expected_selector = &setGuardianConfigCall::SELECTOR;
-        assert_eq!(&calldata[..4], expected_selector);
+        // Length check only — selector correctness tested in encode_set_guardian_config_has_correct_selector
         assert_eq!(calldata.len(), 4 + 5 * 32); // selector + 5 ABI words
     }
 

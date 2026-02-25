@@ -584,7 +584,7 @@ export function verifyMerkleProof(proof_json, root_hex, leaf_hex) {
     }
     return ret[0] !== 0;
 }
-export function __wbg_Error_8c4e43fe74559d73(arg0, arg1) {
+export function __wbg_Error_4577686b3a6d9b3a(arg0, arg1) {
     const ret = Error(getStringFromWasm0(arg0, arg1));
     return ret;
 }
