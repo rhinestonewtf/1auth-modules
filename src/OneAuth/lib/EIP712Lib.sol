@@ -15,8 +15,9 @@ library EIP712Lib {
     //////////////////////////////////////////////////////////////*/
 
     /// @dev EIP-712 typehash for single-operation (chain-specific) passkey signing
+    /// @dev Includes the smart account address to prevent cross-account signature replay
     bytes32 internal constant PASSKEY_DIGEST_TYPEHASH =
-        keccak256("PasskeyDigest(bytes32 digest)");
+        keccak256("PasskeyDigest(address account,bytes32 digest)");
 
     /// @dev EIP-712 typehash for merkle batch (chain-agnostic) passkey signing
     bytes32 internal constant PASSKEY_MULTICHAIN_TYPEHASH =
@@ -28,9 +29,36 @@ library EIP712Lib {
         "RecoverPasskey(address account,uint256 chainId,uint16 newKeyId,bytes32 newPubKeyX,bytes32 newPubKeyY,bool replace,uint256 nonce,uint48 expiry)"
     );
 
+    /// @dev EIP-712 typehash for app validator recovery (changes main account pointer)
+    bytes32 internal constant RECOVER_APP_VALIDATOR_TYPEHASH = keccak256(
+        "RecoverAppValidator(address account,uint256 chainId,address newMainAccount,uint256 nonce,uint48 expiry)"
+    );
+
     /*//////////////////////////////////////////////////////////////
                          STRUCT HASH FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+
+    /// @dev Struct hash for RecoverAppValidator(...)
+    function recoverAppValidatorHash(
+        address account,
+        uint256 chainId,
+        address newMainAccount,
+        uint256 nonce,
+        uint48 expiry
+    )
+        internal
+        pure
+        returns (bytes32)
+    {
+        return EfficientHashLib.hash(
+            RECOVER_APP_VALIDATOR_TYPEHASH,
+            bytes32(uint256(uint160(account))),
+            bytes32(chainId),
+            bytes32(uint256(uint160(newMainAccount))),
+            bytes32(uint256(nonce)),
+            bytes32(uint256(expiry))
+        );
+    }
 
     /// @dev Struct hash for RecoverPasskey(...)
     function recoverPasskeyHash(

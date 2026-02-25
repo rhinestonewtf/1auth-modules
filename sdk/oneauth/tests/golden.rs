@@ -85,6 +85,7 @@ struct StatefulMerkleVector {
 
 #[derive(Deserialize)]
 struct StatelessRegularVector {
+    account: String,
     pub_key_x: String,
     pub_key_y: String,
     output: String,
@@ -92,6 +93,7 @@ struct StatelessRegularVector {
 
 #[derive(Deserialize)]
 struct StatelessMerkleVector {
+    account: String,
     merkle_root: String,
     proof_0: String,
     pub_key_x: String,
@@ -185,10 +187,16 @@ fn golden_typehashes() {
 fn golden_passkey_digest() {
     let v = load_golden();
     let contract = parse_address20(&v.validator_address);
+    // ACCOUNT = address(1) in the Forge script
+    let account: [u8; 20] = {
+        let mut a = [0u8; 20];
+        a[19] = 1;
+        a
+    };
 
     for (_, vector) in &v.passkey_digest {
         let input = parse_bytes32(&vector.input);
-        let result = digest::passkey_digest(&input, v.chain_id, &contract);
+        let result = digest::passkey_digest(&account, &input, v.chain_id, &contract);
         assert_eq!(
             to_hex(&result),
             vector.output.to_lowercase(),
@@ -343,6 +351,7 @@ fn golden_signature_stateless_regular() {
     let sv = &v.signature_encoding.stateless_regular;
 
     let config = StatelessSignatureConfig {
+        account: parse_address20(&sv.account),
         pub_key_x: parse_bytes32(&sv.pub_key_x),
         pub_key_y: parse_bytes32(&sv.pub_key_y),
         merkle: None,
@@ -362,6 +371,7 @@ fn golden_signature_stateless_merkle() {
     let sv = &v.signature_encoding.stateless_merkle;
 
     let config = StatelessSignatureConfig {
+        account: parse_address20(&sv.account),
         pub_key_x: parse_bytes32(&sv.pub_key_x),
         pub_key_y: parse_bytes32(&sv.pub_key_y),
         merkle: Some(MerkleSignatureData {

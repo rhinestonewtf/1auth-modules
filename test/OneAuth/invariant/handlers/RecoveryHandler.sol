@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import { Test } from "forge-std/Test.sol";
 import { OneAuthValidator } from "src/OneAuth/OneAuthValidator.sol";
 import { OneAuthRecoveryBase } from "src/OneAuth/OneAuthRecoveryBase.sol";
+
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
 import { CredentialHandler } from "./CredentialHandler.sol";
 
@@ -76,7 +77,7 @@ contract RecoveryHandler is Test {
         address newGuardian = _pickGuardian(guardianSeed);
 
         vm.prank(actor);
-        try validator.setGuardianConfig(newGuardian, address(0), 1) {
+        try validator.setGuardianConfig(newGuardian, address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0))) {
             ghost_userGuardian[actor] = newGuardian;
             ghost_setUserGuardianCalls++;
         } catch { }

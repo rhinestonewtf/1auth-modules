@@ -10,9 +10,14 @@ sol! {
         bytes32 pubKeyY;
     }
 
+    struct RecoveryAccountIdentifier {
+        bytes32 identitySalt;
+        bytes32 identityCommitment;
+    }
+
     function addCredential(uint16 keyId, bytes32 pubKeyX, bytes32 pubKeyY);
     function removeCredential(uint16 keyId);
-    function setGuardianConfig(address _userGuardian, address _externalGuardian, uint8 _threshold);
+    function setGuardianConfig(address _userGuardian, address _externalGuardian, uint8 _threshold, RecoveryAccountIdentifier _identifier);
 }
 
 /// Hex-encoded string aliases — we use String instead of alloy Address/U256
@@ -92,6 +97,43 @@ pub fn encode_uninstall() -> Vec<u8> {
     vec![]
 }
 
+// ── App validator install ──
+
+/// Input for encoding onInstall data for OneAuthAppValidator.
+/// Matches: abi.encode(address mainAccount, address userGuardian, address externalGuardian, uint8 guardianThreshold)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppInstallInput {
+    pub main_account: HexAddress,
+    pub user_guardian: Option<HexAddress>,
+    pub external_guardian: Option<HexAddress>,
+    pub guardian_threshold: Option<u8>,
+}
+
+pub fn encode_app_install(input: &AppInstallInput) -> Result<(String, Vec<u8>), String> {
+    let main_account = alloy_primitives::Address::from_str(&input.main_account)
+        .map_err(|e| format!("invalid main_account address: {e}"))?;
+
+    let user_guardian = if let Some(ref addr) = input.user_guardian {
+        alloy_primitives::Address::from_str(addr)
+            .map_err(|e| format!("invalid user_guardian address: {e}"))?
+    } else {
+        alloy_primitives::Address::ZERO
+    };
+
+    let external_guardian = if let Some(ref addr) = input.external_guardian {
+        alloy_primitives::Address::from_str(addr)
+            .map_err(|e| format!("invalid external_guardian address: {e}"))?
+    } else {
+        alloy_primitives::Address::ZERO
+    };
+
+    let guardian_threshold = U256::from(input.guardian_threshold.unwrap_or(0));
+
+    let encoded = (main_account, user_guardian, external_guardian, guardian_threshold).abi_encode_params();
+    let hex_str = format!("0x{}", hex::encode(&encoded));
+    Ok((hex_str, encoded))
+}
+
 // ── Credential management calldata ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +169,10 @@ pub struct SetGuardianConfigInput {
     pub user_guardian: HexAddress,
     pub external_guardian: HexAddress,
     pub threshold: u8,
+    /// Random salt stored on-chain for identity verification. Pass None to set bytes32(0).
+    pub identity_salt: Option<HexU256>,
+    /// keccak256(abi.encode(salt, userId, email)) for off-chain guardian verification. Pass None to set bytes32(0).
+    pub identity_commitment: Option<HexU256>,
 }
 
 pub fn encode_set_guardian_config(input: &SetGuardianConfigInput) -> Result<Vec<u8>, String> {
@@ -135,10 +181,26 @@ pub fn encode_set_guardian_config(input: &SetGuardianConfigInput) -> Result<Vec<
     let external_guardian = alloy_primitives::Address::from_str(&input.external_guardian)
         .map_err(|e| format!("invalid external_guardian address: {e}"))?;
 
+    let identity_salt = if let Some(ref s) = input.identity_salt {
+        B256::from_str(s).map_err(|e| format!("invalid identity_salt: {e}"))?
+    } else {
+        B256::ZERO
+    };
+
+    let identity_commitment = if let Some(ref c) = input.identity_commitment {
+        B256::from_str(c).map_err(|e| format!("invalid identity_commitment: {e}"))?
+    } else {
+        B256::ZERO
+    };
+
     let call = setGuardianConfigCall {
         _userGuardian: user_guardian,
         _externalGuardian: external_guardian,
         _threshold: input.threshold,
+        _identifier: RecoveryAccountIdentifier {
+            identitySalt: identity_salt,
+            identityCommitment: identity_commitment,
+        },
     };
     Ok(call.abi_encode())
 }
@@ -239,11 +301,28 @@ mod tests {
             user_guardian: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             external_guardian: "0x0000000000000000000000000000000000000000".to_string(),
             threshold: 1,
+            identity_salt: None,
+            identity_commitment: None,
         };
         let calldata = encode_set_guardian_config(&input).unwrap();
         let expected_selector = &setGuardianConfigCall::SELECTOR;
         assert_eq!(&calldata[..4], expected_selector);
-        assert_eq!(calldata.len(), 4 + 3 * 32); // selector + 3 ABI words
+        assert_eq!(calldata.len(), 4 + 5 * 32); // selector + 5 ABI words
+    }
+
+    #[test]
+    fn encode_set_guardian_config_with_identity() {
+        let input = SetGuardianConfigInput {
+            user_guardian: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
+            external_guardian: "0x0000000000000000000000000000000000000000".to_string(),
+            threshold: 1,
+            identity_salt: Some("0x1111111111111111111111111111111111111111111111111111111111111111".to_string()),
+            identity_commitment: Some("0x2222222222222222222222222222222222222222222222222222222222222222".to_string()),
+        };
+        let calldata = encode_set_guardian_config(&input).unwrap();
+        let expected_selector = &setGuardianConfigCall::SELECTOR;
+        assert_eq!(&calldata[..4], expected_selector);
+        assert_eq!(calldata.len(), 4 + 5 * 32); // selector + 5 ABI words
     }
 
     #[test]
@@ -252,7 +331,47 @@ mod tests {
             user_guardian: "not_an_address".to_string(),
             external_guardian: "0x0000000000000000000000000000000000000000".to_string(),
             threshold: 1,
+            identity_salt: None,
+            identity_commitment: None,
         };
         assert!(encode_set_guardian_config(&input).is_err());
+    }
+
+    #[test]
+    fn encode_app_install_valid_address() {
+        let input = AppInstallInput {
+            main_account: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
+            user_guardian: None,
+            external_guardian: None,
+            guardian_threshold: None,
+        };
+        let (hex_str, raw) = encode_app_install(&input).unwrap();
+        assert!(hex_str.starts_with("0x"));
+        // abi.encode(address, address, address, uint8) = 4 * 32 bytes
+        assert_eq!(raw.len(), 4 * 32);
+    }
+
+    #[test]
+    fn encode_app_install_with_guardians() {
+        let input = AppInstallInput {
+            main_account: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
+            user_guardian: Some("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string()),
+            external_guardian: Some("0x0000000000000000000000000000000000000001".to_string()),
+            guardian_threshold: Some(2),
+        };
+        let (hex_str, raw) = encode_app_install(&input).unwrap();
+        assert!(hex_str.starts_with("0x"));
+        assert_eq!(raw.len(), 4 * 32);
+    }
+
+    #[test]
+    fn encode_app_install_invalid_address_fails() {
+        let input = AppInstallInput {
+            main_account: "not_an_address".to_string(),
+            user_guardian: None,
+            external_guardian: None,
+            guardian_threshold: None,
+        };
+        assert!(encode_app_install(&input).is_err());
     }
 }

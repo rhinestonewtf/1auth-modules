@@ -29,18 +29,21 @@ pub struct MerkleSignatureData {
 /// Configuration for encoding a stateless signature (externally provided creds).
 ///
 /// Data format (regular, proofLength=0):
-///   [0]     proofLength = 0
-///   [1:33]  pubKeyX
-///   [33:65] pubKeyY
+///   [0:20]  account (address)
+///   [20]    proofLength = 0
+///   [21:53] pubKeyX
+///   [53:85] pubKeyY
 ///
 /// Data format (merkle, proofLength>0):
-///   [0]                      proofLength
-///   [1:33]                   merkleRoot
-///   [33:33+proofLen*32]      proof[]
-///   [proofEnd:proofEnd+32]   pubKeyX
-///   [proofEnd+32:proofEnd+64] pubKeyY
+///   [0:20]                           account (address)
+///   [20]                             proofLength
+///   [21:53]                          merkleRoot
+///   [53:53+proofLen*32]              proof[]
+///   [proofEnd:proofEnd+32]           pubKeyX
+///   [proofEnd+32:proofEnd+64]        pubKeyY
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatelessSignatureConfig {
+    pub account: [u8; 20],
     pub pub_key_x: [u8; 32],
     pub pub_key_y: [u8; 32],
     pub merkle: Option<MerkleSignatureData>,
@@ -121,8 +124,12 @@ pub fn encode_guardian_entries(entries: &[(u8, Vec<u8>)]) -> Vec<u8> {
 }
 
 /// Encode stateless data (for validateSignatureWithData).
+/// Prepends 20-byte account before proofLength.
 pub fn encode_stateless_data(config: &StatelessSignatureConfig) -> Vec<u8> {
     let mut result = Vec::new();
+
+    // Account is always first (20 bytes)
+    result.extend_from_slice(&config.account);
 
     match &config.merkle {
         None => {
@@ -137,7 +144,6 @@ pub fn encode_stateless_data(config: &StatelessSignatureConfig) -> Vec<u8> {
             for p in &merkle.proof {
                 result.extend_from_slice(p);
             }
-            // Credential data after proof (matches stateful layout)
             result.extend_from_slice(&config.pub_key_x);
             result.extend_from_slice(&config.pub_key_y);
         }
@@ -188,24 +194,30 @@ mod tests {
 
     #[test]
     fn regular_stateless_data() {
+        let account = [0xAB; 20];
         let config = StatelessSignatureConfig {
+            account,
             pub_key_x: [0x11; 32],
             pub_key_y: [0x22; 32],
             merkle: None,
         };
         let data = encode_stateless_data(&config);
 
-        assert_eq!(data[0], 0);
-        assert_eq!(&data[1..33], &[0x11; 32]);
-        assert_eq!(&data[33..65], &[0x22; 32]);
-        assert_eq!(data.len(), 65);
+        // [0:20] account, [20] proofLength=0, [21:53] pubKeyX, [53:85] pubKeyY
+        assert_eq!(&data[0..20], &account);
+        assert_eq!(data[20], 0);
+        assert_eq!(&data[21..53], &[0x11; 32]);
+        assert_eq!(&data[53..85], &[0x22; 32]);
+        assert_eq!(data.len(), 85);
     }
 
     #[test]
     fn merkle_stateless_data() {
+        let account = [0xAB; 20];
         let root = [0xAA; 32];
         let proof_elem = [0xBB; 32];
         let config = StatelessSignatureConfig {
+            account,
             pub_key_x: [0x11; 32],
             pub_key_y: [0x22; 32],
             merkle: Some(MerkleSignatureData {
@@ -215,13 +227,14 @@ mod tests {
         };
         let data = encode_stateless_data(&config);
 
-        assert_eq!(data[0], 1); // proofLength
-        assert_eq!(&data[1..33], &root); // merkleRoot
-        assert_eq!(&data[33..65], &proof_elem); // proof[0]
-        // proofEnd = 33 + 32 = 65
-        assert_eq!(&data[65..97], &[0x11; 32]); // pubKeyX
-        assert_eq!(&data[97..129], &[0x22; 32]); // pubKeyY
-        assert_eq!(data.len(), 129);
+        // [0:20] account, [20] proofLength=1, [21:53] root, [53:85] proof[0], [85:117] pubKeyX, [117:149] pubKeyY
+        assert_eq!(&data[0..20], &account);
+        assert_eq!(data[20], 1); // proofLength
+        assert_eq!(&data[21..53], &root); // merkleRoot
+        assert_eq!(&data[53..85], &proof_elem); // proof[0]
+        assert_eq!(&data[85..117], &[0x11; 32]); // pubKeyX
+        assert_eq!(&data[117..149], &[0x22; 32]); // pubKeyY
+        assert_eq!(data.len(), 149);
     }
 
     #[test]

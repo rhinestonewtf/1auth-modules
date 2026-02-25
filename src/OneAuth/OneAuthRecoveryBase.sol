@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import { EIP712 } from "solady/utils/EIP712.sol";
-import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
+import { GuardianVerifierLib } from "./lib/GuardianVerifierLib.sol";
 import { EIP712Lib } from "./lib/EIP712Lib.sol";
 
 /// @title OneAuthRecoveryBase
@@ -73,23 +73,11 @@ abstract contract OneAuthRecoveryBase is EIP712 {
     /// @notice Thrown when the recovery nonce has already been consumed (replay protection)
     error NonceAlreadyUsed();
 
-    /// @notice Thrown in `recoverWithGuardian` when the selected guardian type is not configured
-    error GuardianNotConfigured();
-
     /// @notice Thrown in `recoverWithPasskey` when the passkey signature over the recovery digest is invalid
     error InvalidRecoverySignature();
 
-    /// @notice Thrown in `recoverWithGuardian` when the guardian's signature over the recovery digest is invalid
-    error InvalidGuardianSignature();
-
     /// @notice Thrown when chainId is non-zero and does not match the current block.chainid
     error InvalidChainId();
-
-    /// @notice Thrown when the guardian type byte prefix is not 0x00 or 0x01
-    error InvalidGuardianType();
-
-    /// @notice Thrown when guardianSig is empty (no type byte)
-    error EmptyGuardianSignature();
 
     /// @notice Thrown when threshold is not 1 or 2
     error InvalidThreshold();
@@ -109,22 +97,20 @@ abstract contract OneAuthRecoveryBase is EIP712 {
         bool replace;
     }
 
-    /// @notice Guardian addresses and signing threshold
-    /// @dev threshold=1: either guardian can authorize recovery alone
-    ///      threshold=2: both guardians must sign
-    ///      threshold=0: treated as 1 (default for zero-initialized storage)
-    struct GuardianConfig {
-        address userGuardian;
-        address externalGuardian;
-        uint8 threshold;
+    /// @notice Identity data used by guardians for off-chain account verification via JWT
+    struct RecoveryAccountIdentifier {
+        bytes32 identitySalt;
+        bytes32 identityCommitment;
     }
 
     /// @notice Per-account recovery configuration
-    /// @dev The nonceUsed mapping is intentionally NOT cleared on uninstall to prevent
-    ///      replay of old recovery signatures if the module is reinstalled
+    /// @dev The nonceUsed mapping and identity commitment are intentionally NOT cleared
+    ///      on uninstall to prevent replay of old recovery signatures if the module is
+    ///      reinstalled, and to avoid requiring re-attestation of identity.
     struct RecoveryConfig {
-        GuardianConfig guardian;
+        GuardianVerifierLib.GuardianConfig guardian;
         mapping(uint256 nonce => bool) nonceUsed;
+        RecoveryAccountIdentifier identifier;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -196,7 +182,7 @@ abstract contract OneAuthRecoveryBase is EIP712 {
             }
         }
 
-        GuardianConfig storage gc = _recoveryConfig[account].guardian;
+        GuardianVerifierLib.GuardianConfig storage gc = _recoveryConfig[account].guardian;
         gc.userGuardian = _userGuardian;
         gc.externalGuardian = _externalGuardian;
         gc.threshold = _threshold;
@@ -208,10 +194,12 @@ abstract contract OneAuthRecoveryBase is EIP712 {
     /// @param _userGuardian Address of the user guardian (address(0) to clear)
     /// @param _externalGuardian Address of the external guardian (address(0) to clear)
     /// @param _threshold 1 = either guardian, 2 = both required
+    /// @param _identifier Identity data for off-chain guardian verification
     function setGuardianConfig(
         address _userGuardian,
         address _externalGuardian,
-        uint8 _threshold
+        uint8 _threshold,
+        RecoveryAccountIdentifier calldata _identifier
     )
         external
     {
@@ -222,10 +210,13 @@ abstract contract OneAuthRecoveryBase is EIP712 {
             }
         }
 
-        GuardianConfig storage gc = _recoveryConfig[msg.sender].guardian;
+        RecoveryConfig storage rc = _recoveryConfig[msg.sender];
+        GuardianVerifierLib.GuardianConfig storage gc = rc.guardian;
         gc.userGuardian = _userGuardian;
         gc.externalGuardian = _externalGuardian;
         gc.threshold = _threshold;
+        rc.identifier.identitySalt = _identifier.identitySalt;
+        rc.identifier.identityCommitment = _identifier.identityCommitment;
 
         emit GuardianConfigSet(msg.sender, _userGuardian, _externalGuardian, _threshold);
     }
@@ -278,111 +269,14 @@ abstract contract OneAuthRecoveryBase is EIP712 {
         external
         validRecovery(account, chainId, nonce, expiry)
     {
-        _executeGuardianRecovery(account, chainId, cred, nonce, expiry, guardianSig);
-    }
-
-    function _executeGuardianRecovery(
-        address account,
-        uint256 chainId,
-        NewCredential calldata cred,
-        uint256 nonce,
-        uint48 expiry,
-        bytes calldata guardianSig
-    )
-        internal
-    {
         bytes32 digest = getRecoverDigest(account, chainId, cred, nonce, expiry);
-        GuardianConfig storage gc = _recoveryConfig[account].guardian;
-        uint8 t = gc.threshold;
+        GuardianVerifierLib.GuardianConfig storage gc = _recoveryConfig[account].guardian;
 
-        // threshold == 0 means default (1) for backward compatibility
-        if (t <= 1) {
-            _executeSingleGuardianRecovery(account, gc, digest, cred, nonce, guardianSig);
-        } else {
-            _executeDualGuardianRecovery(account, gc, digest, cred, nonce, guardianSig);
-        }
-    }
-
-    /// @dev Single-guardian recovery path (threshold=1). Format: [type_byte][sig]
-    function _executeSingleGuardianRecovery(
-        address account,
-        GuardianConfig storage gc,
-        bytes32 digest,
-        NewCredential calldata cred,
-        uint256 nonce,
-        bytes calldata guardianSig
-    )
-        internal
-    {
-        (address _guardian, bytes calldata sig) = _resolveGuardian(gc, guardianSig);
-
-        if (!SignatureCheckerLib.isValidSignatureNowCalldata(_guardian, digest, sig)) {
-            revert InvalidGuardianSignature();
-        }
+        address guardian = GuardianVerifierLib.verifyGuardian(gc, digest, guardianSig);
 
         _addCredentialRecovery(account, cred);
 
-        emit GuardianRecoveryExecuted(account, _guardian, cred.keyId, nonce);
-    }
-
-    /// @dev Dual-guardian recovery path (threshold=2). Format: [user_sig_len: uint16][user_sig][external_sig]
-    function _executeDualGuardianRecovery(
-        address account,
-        GuardianConfig storage gc,
-        bytes32 digest,
-        NewCredential calldata cred,
-        uint256 nonce,
-        bytes calldata guardianSig
-    )
-        internal
-    {
-        if (guardianSig.length < 2) revert EmptyGuardianSignature();
-
-        uint256 userSigEnd = 2 + uint256(uint16(bytes2(guardianSig[0:2])));
-        if (guardianSig.length < userSigEnd) revert InvalidGuardianSignature();
-
-        if (gc.userGuardian == address(0) || gc.externalGuardian == address(0)) {
-            revert GuardianNotConfigured();
-        }
-
-        if (!SignatureCheckerLib.isValidSignatureNowCalldata(gc.userGuardian, digest, guardianSig[2:userSigEnd]))
-        {
-            revert InvalidGuardianSignature();
-        }
-        if (!SignatureCheckerLib.isValidSignatureNowCalldata(gc.externalGuardian, digest, guardianSig[userSigEnd:]))
-        {
-            revert InvalidGuardianSignature();
-        }
-
-        address emitGuardian = gc.userGuardian;
-        _addCredentialRecovery(account, cred);
-
-        emit GuardianRecoveryExecuted(account, emitGuardian, cred.keyId, nonce);
-    }
-
-    /// @dev Parses the type byte prefix from guardianSig and resolves the guardian address
-    function _resolveGuardian(
-        GuardianConfig storage gc,
-        bytes calldata guardianSig
-    )
-        internal
-        view
-        returns (address guardian_, bytes calldata sig)
-    {
-        if (guardianSig.length == 0) revert EmptyGuardianSignature();
-
-        uint8 guardianType = uint8(guardianSig[0]);
-        sig = guardianSig[1:];
-
-        if (guardianType == 0x00) {
-            guardian_ = gc.userGuardian;
-        } else if (guardianType == 0x01) {
-            guardian_ = gc.externalGuardian;
-        } else {
-            revert InvalidGuardianType();
-        }
-
-        if (guardian_ == address(0)) revert GuardianNotConfigured();
+        emit GuardianRecoveryExecuted(account, guardian, cred.keyId, nonce);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -395,7 +289,7 @@ abstract contract OneAuthRecoveryBase is EIP712 {
         view
         returns (address userGuardian, address externalGuardian, uint8 threshold)
     {
-        GuardianConfig storage gc = _recoveryConfig[account].guardian;
+        GuardianVerifierLib.GuardianConfig storage gc = _recoveryConfig[account].guardian;
         return (gc.userGuardian, gc.externalGuardian, gc.threshold);
     }
 
@@ -408,6 +302,19 @@ abstract contract OneAuthRecoveryBase is EIP712 {
     /// @notice Checks whether a specific recovery nonce has been consumed for an account
     function nonceUsed(address account, uint256 nonce) external view returns (bool) {
         return _recoveryConfig[account].nonceUsed[nonce];
+    }
+
+    /// @notice Returns the identity data for an account
+    /// @dev Used by guardians off-chain to verify account ownership via JWT.
+    ///      The guardian reads the salt, asks the user to authenticate with their identity
+    ///      provider, then verifies keccak256(abi.encode(salt, userId, email)) matches
+    ///      the stored commitment before signing a recovery digest.
+    function getAccountRecoveryIdentifier(address account)
+        external
+        view
+        returns (RecoveryAccountIdentifier memory)
+    {
+        return _recoveryConfig[account].identifier;
     }
 
     /**

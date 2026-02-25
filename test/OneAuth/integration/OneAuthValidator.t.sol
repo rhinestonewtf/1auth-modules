@@ -3,6 +3,7 @@ pragma solidity ^0.8.23;
 
 import { BaseIntegrationTest, ModuleKitHelpers } from "test/BaseIntegration.t.sol";
 import { OneAuthValidator } from "src/OneAuth/OneAuthValidator.sol";
+import { OneAuthRecoveryBase } from "src/OneAuth/OneAuthRecoveryBase.sol";
 import { MODULE_TYPE_VALIDATOR } from "modulekit/accounts/common/interfaces/IERC7579Module.sol";
 import { UserOpData } from "modulekit/ModuleKit.sol";
 
@@ -150,11 +151,9 @@ contract OneAuthValidatorIntegrationTest is BaseIntegrationTest {
         instance.getExecOps({
             target: address(validator),
             value: 0,
-            callData: abi.encodeWithSelector(
-                bytes4(keccak256("setGuardianConfig(address,address,uint8)")),
-                guardianAddress,
-                address(0),
-                uint8(1)
+            callData: abi.encodeCall(
+                OneAuthRecoveryBase.setGuardianConfig,
+                (guardianAddress, address(0), uint8(1), OneAuthRecoveryBase.RecoveryAccountIdentifier(bytes32(0), bytes32(0)))
             ),
             txValidator: address(instance.defaultValidator)
         }).execUserOps();

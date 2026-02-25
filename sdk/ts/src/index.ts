@@ -24,16 +24,23 @@ export {
   // Recovery
   getRecoveryDigest,
   getRecoveryTypehash,
+  // App recovery
+  getAppRecoveryDigest,
+  getAppRecoveryTypehash,
   // Merkle tree
   buildMerkleTree,
   verifyMerkleProof,
+  // App validator
+  encodeAppInstall,
   // Constants
   MODULE_ADDRESS,
+  APP_MODULE_ADDRESS,
 } from "./oneauth.js";
 
 export type {
   CredentialInput,
   InstallInput,
+  AppInstallInput,
   AddCredentialInput,
   SetGuardianConfigInput,
   NewCredential,
@@ -43,13 +50,17 @@ export type {
   StatefulSignatureConfig,
   StatelessSignatureConfig,
   RecoveryDigestInput,
+  AppRecoveryDigestInput,
 } from "./types.js";
 
 export {
   getOneAuthValidator,
   getOneAuthValidatorSignature,
   getOneAuthValidatorMockSignature,
+  getOneAuthAppValidator,
+  getOneAuthAppValidatorMockSignature,
   ONEAUTH_VALIDATOR_ADDRESS,
+  ONEAUTH_APP_VALIDATOR_ADDRESS,
 } from "./rhinestone.js";
 
 export type { Module } from "./rhinestone.js";

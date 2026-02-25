@@ -13,6 +13,7 @@ contract GenerateGoldenVectors is Script {
     bytes32 constant DIGEST_A = 0xf631058a3ba1116acce12396fad0a125b5041c43f8e15723709f81aa8d5f4ccf;
     bytes32 constant DIGEST_B = 0x1111111111111111111111111111111111111111111111111111111111111111;
     bytes32 constant DIGEST_C = 0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef;
+    address constant ACCOUNT = address(1);
 
     function run() public {
         OneAuthValidator validator = new OneAuthValidator();
@@ -45,9 +46,9 @@ contract GenerateGoldenVectors is Script {
 
     function _buildPasskeyDigests(OneAuthValidator v) internal returns (string memory) {
         string memory arr = "passkey_digests";
-        vm.serializeString(arr, "0", _digestVector("pd_a", DIGEST_A, v.getPasskeyDigest(DIGEST_A)));
-        vm.serializeString(arr, "1", _digestVector("pd_b", DIGEST_B, v.getPasskeyDigest(DIGEST_B)));
-        return vm.serializeString(arr, "2", _digestVector("pd_c", DIGEST_C, v.getPasskeyDigest(DIGEST_C)));
+        vm.serializeString(arr, "0", _digestVector("pd_a", DIGEST_A, v.getPasskeyDigest(ACCOUNT, DIGEST_A)));
+        vm.serializeString(arr, "1", _digestVector("pd_b", DIGEST_B, v.getPasskeyDigest(ACCOUNT, DIGEST_B)));
+        return vm.serializeString(arr, "2", _digestVector("pd_c", DIGEST_C, v.getPasskeyDigest(ACCOUNT, DIGEST_C)));
     }
 
     function _buildPasskeyMultichains(OneAuthValidator v) internal returns (string memory) {
@@ -167,19 +168,21 @@ contract GenerateGoldenVectors is Script {
             vm.serializeString(obj, "stateful_merkle", vm.serializeBytes(k, "output", packed));
         }
 
-        // Stateless regular: [proofLength=0][pubKeyX][pubKeyY]
+        // Stateless regular: [account][proofLength=0][pubKeyX][pubKeyY]
         {
             string memory k = "sl_regular";
-            bytes memory packed = abi.encodePacked(uint8(0), pubKeyX, pubKeyY);
+            bytes memory packed = abi.encodePacked(ACCOUNT, uint8(0), pubKeyX, pubKeyY);
+            vm.serializeAddress(k, "account", ACCOUNT);
             vm.serializeBytes32(k, "pub_key_x", pubKeyX);
             vm.serializeBytes32(k, "pub_key_y", pubKeyY);
             vm.serializeString(obj, "stateless_regular", vm.serializeBytes(k, "output", packed));
         }
 
-        // Stateless merkle: [proofLength=1][root][proof0][pubKeyX][pubKeyY]
+        // Stateless merkle: [account][proofLength=1][root][proof0][pubKeyX][pubKeyY]
         {
             string memory k = "sl_merkle";
-            bytes memory packed = abi.encodePacked(uint8(1), merkleRoot, proofElem, pubKeyX, pubKeyY);
+            bytes memory packed = abi.encodePacked(ACCOUNT, uint8(1), merkleRoot, proofElem, pubKeyX, pubKeyY);
+            vm.serializeAddress(k, "account", ACCOUNT);
             vm.serializeBytes32(k, "merkle_root", merkleRoot);
             vm.serializeBytes32(k, "proof_0", proofElem);
             vm.serializeBytes32(k, "pub_key_x", pubKeyX);
