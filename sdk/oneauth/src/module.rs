@@ -77,6 +77,8 @@ mod tests {
             user_guardian: None,
             external_guardian: None,
             guardian_threshold: None,
+            identity_salt: None,
+            identity_commitment: None,
         };
         let bytes = m.encode_install(&input).unwrap();
         assert!(!bytes.is_empty());

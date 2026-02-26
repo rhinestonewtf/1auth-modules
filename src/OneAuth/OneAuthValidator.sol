@@ -92,8 +92,9 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
             WebAuthnCredential[] memory creds,
             address _userGuardian,
             address _externalGuardian,
-            uint8 _guardianThreshold
-        ) = abi.decode(data, (uint16[], WebAuthnCredential[], address, address, uint8));
+            uint8 _guardianThreshold,
+            RecoveryAccountIdentifier memory _identifier
+        ) = abi.decode(data, (uint16[], WebAuthnCredential[], address, address, uint8, RecoveryAccountIdentifier));
         uint256 length = creds.length;
 
         if (length == 0 || length != keyIds.length) {
@@ -106,13 +107,15 @@ contract OneAuthValidator is ERC7579HybridValidatorBase, OneAuthRecoveryBase, IO
             _storeCredential(pc, account, keyIds[i], creds[i].pubKeyX, creds[i].pubKeyY);
         }
 
-        // Set guardian config if any guardian is provided or threshold is explicitly set
-        if (_userGuardian != address(0) || _externalGuardian != address(0) || _guardianThreshold != 0)
-        {
+        // Set guardian config if any guardian is provided, threshold is explicitly set, or identity fields are provided
+        if (
+            _userGuardian != address(0) || _externalGuardian != address(0) || _guardianThreshold != 0
+                || _identifier.identitySalt != bytes32(0) || _identifier.identityCommitment != bytes32(0)
+        ) {
             // Default threshold to 1 when guardians provided but no explicit threshold
             uint8 effectiveThreshold = _guardianThreshold == 0 ? 1 : _guardianThreshold;
             _setGuardianConfigImmediate(
-                account, _userGuardian, _externalGuardian, effectiveThreshold
+                account, _userGuardian, _externalGuardian, effectiveThreshold, _identifier
             );
         }
 

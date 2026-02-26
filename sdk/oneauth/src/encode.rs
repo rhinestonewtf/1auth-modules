@@ -27,7 +27,7 @@ type HexAddress = String;
 type HexU256 = String;
 
 /// Input for encoding onInstall data for OneAuthValidator.
-/// Matches: abi.encode(uint16[] keyIds, WebAuthnCredential[] creds, address userGuardian, address externalGuardian, uint8 guardianThreshold)
+/// Matches: abi.encode(uint16[] keyIds, WebAuthnCredential[] creds, address userGuardian, address externalGuardian, uint8 guardianThreshold, bytes32 identitySalt, bytes32 identityCommitment)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstallInput {
     pub key_ids: Vec<u16>,
@@ -36,6 +36,10 @@ pub struct InstallInput {
     pub external_guardian: Option<HexAddress>,
     /// Guardian threshold: 1 = either guardian, 2 = both required. 0 or None = default (1).
     pub guardian_threshold: Option<u8>,
+    /// Random salt stored on-chain for identity verification. None defaults to bytes32(0).
+    pub identity_salt: Option<HexU256>,
+    /// keccak256(abi.encode(salt, userId, email)) for off-chain guardian verification. None defaults to bytes32(0).
+    pub identity_commitment: Option<HexU256>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,7 +90,19 @@ pub fn encode_install(input: &InstallInput) -> Result<(String, Vec<u8>), String>
 
     let guardian_threshold = U256::from(input.guardian_threshold.unwrap_or(0));
 
-    let encoded = (key_ids, creds, user_guardian, external_guardian, guardian_threshold).abi_encode_params();
+    let identity_salt = if let Some(ref s) = input.identity_salt {
+        B256::from_str(s).map_err(|e| format!("invalid identity_salt: {e}"))?
+    } else {
+        B256::ZERO
+    };
+
+    let identity_commitment = if let Some(ref c) = input.identity_commitment {
+        B256::from_str(c).map_err(|e| format!("invalid identity_commitment: {e}"))?
+    } else {
+        B256::ZERO
+    };
+
+    let encoded = (key_ids, creds, user_guardian, external_guardian, guardian_threshold, identity_salt, identity_commitment).abi_encode_params();
 
     let hex_str = format!("0x{}", hex::encode(&encoded));
     Ok((hex_str, encoded))
@@ -229,6 +245,8 @@ mod tests {
             user_guardian: None,
             external_guardian: None,
             guardian_threshold: None,
+            identity_salt: None,
+            identity_commitment: None,
         };
         let (hex_str, _raw) = encode_install(&input).unwrap();
         assert!(hex_str.starts_with("0x"));
@@ -256,6 +274,8 @@ mod tests {
             user_guardian: Some("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string()),
             external_guardian: None,
             guardian_threshold: Some(1),
+            identity_salt: None,
+            identity_commitment: None,
         };
         let (hex_str, _raw) = encode_install(&input).unwrap();
         assert!(hex_str.starts_with("0x"));
@@ -272,6 +292,8 @@ mod tests {
             user_guardian: None,
             external_guardian: None,
             guardian_threshold: None,
+            identity_salt: None,
+            identity_commitment: None,
         };
         assert!(encode_install(&input).is_err());
     }

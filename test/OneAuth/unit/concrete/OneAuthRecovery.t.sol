@@ -112,7 +112,7 @@ contract OneAuthRecoveryTest is BaseTest {
         OneAuthValidator.WebAuthnCredential[] memory creds =
             new OneAuthValidator.WebAuthnCredential[](1);
         creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
-        return abi.encode(keyIds, creds, address(0), address(0), uint8(0));
+        return abi.encode(keyIds, creds, address(0), address(0), uint8(0), bytes32(0), bytes32(0));
     }
 
     function _install1() internal {
@@ -174,7 +174,7 @@ contract OneAuthRecoveryTest is BaseTest {
         OneAuthValidator.WebAuthnCredential[] memory creds =
             new OneAuthValidator.WebAuthnCredential[](1);
         creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
-        validator.onInstall(abi.encode(keyIds, creds, address(mockGuardian), address(0), uint8(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(mockGuardian), address(0), uint8(0), bytes32(0), bytes32(0)));
 
         { (address ug,,) = validator.guardianConfig(address(this)); assertEq(ug, address(mockGuardian)); }
     }
@@ -200,6 +200,33 @@ contract OneAuthRecoveryTest is BaseTest {
         validator.setGuardianConfig(address(mockGuardian), address(0), 1, OneAuthRecoveryBase.RecoveryAccountIdentifier(salt, commitment));
 
         OneAuthRecoveryBase.RecoveryAccountIdentifier memory id = validator.getAccountRecoveryIdentifier(address(this));
+        assertEq(id.identitySalt, salt);
+        assertEq(id.identityCommitment, commitment);
+    }
+
+    function test_OnInstall_SetsIdentity() public {
+        uint16[] memory keyIds = new uint16[](1);
+        keyIds[0] = 0;
+        OneAuthValidator.WebAuthnCredential[] memory creds =
+            new OneAuthValidator.WebAuthnCredential[](1);
+        creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
+
+        bytes32 salt = keccak256("install-salt");
+        bytes32 commitment = keccak256(abi.encode(salt, "user123", "user@example.com"));
+
+        validator.onInstall(
+            abi.encode(
+                keyIds,
+                creds,
+                address(mockGuardian),
+                address(0),
+                uint8(1),
+                OneAuthRecoveryBase.RecoveryAccountIdentifier(salt, commitment)
+            )
+        );
+
+        OneAuthRecoveryBase.RecoveryAccountIdentifier memory id =
+            validator.getAccountRecoveryIdentifier(address(this));
         assertEq(id.identitySalt, salt);
         assertEq(id.identityCommitment, commitment);
     }

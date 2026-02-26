@@ -11,6 +11,10 @@ export interface InstallInput {
   userGuardian?: Address;
   externalGuardian?: Address;
   guardianThreshold?: number;
+  /** Random salt stored on-chain for identity verification. Guardian reads this from chain. */
+  identitySalt?: Hex;
+  /** keccak256(abi.encode(salt, userId, email)) — computed off-chain */
+  identityCommitment?: Hex;
 }
 
 export interface DigestResult {

@@ -99,7 +99,7 @@ contract OneAuthAppRecoveryTest is BaseTest {
         OneAuthValidator.WebAuthnCredential[] memory creds =
             new OneAuthValidator.WebAuthnCredential[](1);
         creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
-        bytes memory data = abi.encode(keyIds, creds, address(0), address(0), uint8(0));
+        bytes memory data = abi.encode(keyIds, creds, address(0), address(0), uint8(0), bytes32(0), bytes32(0));
         vm.prank(account);
         mainValidator.onInstall(data);
     }

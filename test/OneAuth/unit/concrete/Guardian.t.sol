@@ -410,7 +410,7 @@ contract GuardianRecoveryIntegrationTest is Test {
         OneAuthValidator.WebAuthnCredential[] memory creds =
             new OneAuthValidator.WebAuthnCredential[](1);
         creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX0, pubKeyY: _pubKeyY0 });
-        validator.onInstall(abi.encode(keyIds, creds, address(0), address(guardianContract), uint8(0)));
+        validator.onInstall(abi.encode(keyIds, creds, address(0), address(guardianContract), uint8(0), bytes32(0), bytes32(0)));
     }
 
     function test_recoverWithGuardian_2of3() public {
