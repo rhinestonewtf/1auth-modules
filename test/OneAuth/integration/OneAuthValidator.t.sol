@@ -56,7 +56,7 @@ contract OneAuthValidatorIntegrationTest is BaseIntegrationTest {
         instance.installModule({
             moduleTypeId: MODULE_TYPE_VALIDATOR,
             module: address(validator),
-            data: abi.encode(keyIds, creds, userGuardian_, externalGuardian_, uint8(0))
+            data: abi.encode(keyIds, creds, userGuardian_, externalGuardian_, uint8(0), bytes32(0), bytes32(0))
         });
     }
 

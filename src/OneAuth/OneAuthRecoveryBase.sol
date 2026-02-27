@@ -171,7 +171,8 @@ abstract contract OneAuthRecoveryBase is EIP712 {
         address account,
         address _userGuardian,
         address _externalGuardian,
-        uint8 _threshold
+        uint8 _threshold,
+        RecoveryAccountIdentifier memory _identifier
     )
         internal
     {
@@ -182,10 +183,13 @@ abstract contract OneAuthRecoveryBase is EIP712 {
             }
         }
 
-        GuardianVerifierLib.GuardianConfig storage gc = _recoveryConfig[account].guardian;
+        RecoveryConfig storage rc = _recoveryConfig[account];
+        GuardianVerifierLib.GuardianConfig storage gc = rc.guardian;
         gc.userGuardian = _userGuardian;
         gc.externalGuardian = _externalGuardian;
         gc.threshold = _threshold;
+        rc.identifier.identitySalt = _identifier.identitySalt;
+        rc.identifier.identityCommitment = _identifier.identityCommitment;
 
         emit GuardianConfigSet(account, _userGuardian, _externalGuardian, _threshold);
     }

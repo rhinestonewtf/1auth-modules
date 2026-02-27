@@ -42,7 +42,7 @@ contract OneAuthAppValidatorIntegrationTest is BaseIntegrationTest {
         instance.installModule({
             moduleTypeId: MODULE_TYPE_VALIDATOR,
             module: address(mainValidatorModule),
-            data: abi.encode(keyIds, creds, address(0), address(0), uint8(0))
+            data: abi.encode(keyIds, creds, address(0), address(0), uint8(0), bytes32(0), bytes32(0))
         });
 
         // Install OneAuthAppValidator on the app account, pointing to the main account

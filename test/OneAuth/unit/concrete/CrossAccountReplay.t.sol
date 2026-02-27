@@ -86,7 +86,7 @@ contract CrossAccountReplayTest is BaseTest {
         OneAuthValidator.WebAuthnCredential[] memory creds = new OneAuthValidator.WebAuthnCredential[](1);
         creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX, pubKeyY: _pubKeyY });
         vm.prank(account);
-        mainValidator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0)));
+        mainValidator.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0), bytes32(0), bytes32(0)));
     }
 
     function _installAppAccount(address appAccount, address mainAccount) internal {
@@ -307,7 +307,7 @@ contract CrossAccountReplayTest is BaseTest {
         OneAuthValidator.WebAuthnCredential[] memory creds = new OneAuthValidator.WebAuthnCredential[](1);
         creds[0] = OneAuthValidator.WebAuthnCredential({ pubKeyX: _pubKeyX, pubKeyY: _pubKeyY });
         vm.prank(account);
-        v.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0)));
+        v.onInstall(abi.encode(keyIds, creds, address(0), address(0), uint8(0), bytes32(0), bytes32(0)));
     }
 
     /*//////////////////////////////////////////////////////////////////////////

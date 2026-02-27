@@ -258,6 +258,8 @@ export function encodeInstall(input: InstallInput): { address: Address; initData
     user_guardian: input.userGuardian ?? "0x0000000000000000000000000000000000000000",
     external_guardian: input.externalGuardian ?? "0x0000000000000000000000000000000000000000",
     guardian_threshold: input.guardianThreshold ?? 0,
+    identity_salt: input.identitySalt ?? null,
+    identity_commitment: input.identityCommitment ?? null,
   });
   const result = JSON.parse(wasmEncodeInstall(wasmInput));
   return { address: result.address as Address, initData: result.initData as Hex };
