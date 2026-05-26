@@ -28,6 +28,20 @@ contract MockSwap is Ownable {
     ///         doesn't strobe every block.
     uint256 public constant JITTER_BUCKET_SECONDS = 5;
 
+    /// @notice How many fast buckets share the same slow "drift" sample. With
+    ///         `JITTER_BUCKET_SECONDS = 5` and a multiplier of 12, the drift
+    ///         component changes every 60 seconds — giving the ticker a
+    ///         visible macro trend on top of which the per-bucket noise wiggles.
+    uint256 public constant DRIFT_BUCKET_MULTIPLIER = 12;
+
+    /// @notice Share of the jitter band consumed by the slow drift (in
+    ///         basis points). 7000 = 70% drift, 30% per-bucket noise. The
+    ///         split is chosen so the sum still fits in `[-jitterRange,
+    ///         +jitterRange]`, while a clear majority of the visible movement
+    ///         comes from the slower trend (the noise is the small wiggle on
+    ///         top, not the dominant signal).
+    uint256 public constant DRIFT_BPS = 7000;
+
     /// @notice USDC accepted for swaps. Expected to be Circle's Base Sepolia
     ///         USDC at 0x036CbD53842c5426634e7929541eC2318f3dCF7e (6 decimals).
     IERC20 public immutable USDC;
@@ -142,11 +156,40 @@ contract MockSwap is Ownable {
         // `swap()` in the same UI tick. 5s gives a visible heartbeat without
         // strobing. Determinism is intentional (demo only — see contract NatSpec).
         uint256 bucket = block.timestamp / JITTER_BUCKET_SECONDS;
-        uint256 noise = uint256(keccak256(abi.encode(bucket, address(this))));
-        // Map noise into [0, 2*range] then subtract `range` -> [-range, +range].
-        // Casting through int256 keeps the underflow check explicit.
-        uint256 offset = noise % (2 * range + 1);
-        price = base + offset - range;
+
+        // Two deterministic components per the contract NatSpec:
+        //   1. Slow drift: changes every DRIFT_BUCKET_MULTIPLIER fast buckets
+        //      (default ~60s). Provides the macro trend that makes the ticker
+        //      read as a price chart instead of white noise.
+        //   2. Per-bucket noise: small wiggle on top of the drift, refreshed
+        //      every fast bucket (5s).
+        // Splits the band 70/30 by basis points so `|drift| + |noise| <= range`
+        // strictly, keeping the price inside [base - range, base + range].
+        uint256 driftRange = (range * DRIFT_BPS) / 10_000;
+        uint256 noiseRange = range - driftRange;
+
+        uint256 driftBucket = bucket / DRIFT_BUCKET_MULTIPLIER;
+        int256 drift = _signedOffset(
+            uint256(keccak256(abi.encode("drift", driftBucket, address(this)))),
+            driftRange
+        );
+        int256 noise = _signedOffset(
+            uint256(keccak256(abi.encode("noise", bucket, address(this)))),
+            noiseRange
+        );
+
+        // base fits easily in int256 (it's a 6-decimal USDC amount, < 2^96 in
+        // any sane configuration). drift + noise is bounded by ±range, which
+        // is < base (enforced by setJitter / constructor), so the result is
+        // always > 0.
+        price = uint256(int256(base) + drift + noise);
+    }
+
+    /// @dev Map an arbitrary 256-bit hash into the signed range [-r, +r].
+    function _signedOffset(uint256 hashWord, uint256 r) private pure returns (int256) {
+        if (r == 0) return 0;
+        uint256 offset = hashWord % (2 * r + 1);
+        return int256(offset) - int256(r);
     }
 
     /// @notice Swap `usdcIn` USDC for RWA tokens at the live `getPrice()`.

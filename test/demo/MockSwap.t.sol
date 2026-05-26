@@ -346,6 +346,38 @@ contract MockSwapTest is Test {
         assertTrue(sawBelow, "jitter should produce prices below baseline");
     }
 
+    function test_getPrice_consecutiveBucketsCorrelated() public {
+        // The drift component is shared across DRIFT_BUCKET_MULTIPLIER fast
+        // buckets. So a price step between two adjacent fast buckets in the
+        // SAME drift window can only come from the noise component, which is
+        // 30% of the band — never the full ±range jump white-noise would allow.
+        // This is the invariant that makes the ticker look like a chart.
+        uint256 jitter = 100 * 1e6;
+        vm.prank(owner);
+        swap.setJitter(jitter);
+
+        uint256 maxNoiseRange = jitter - (jitter * 7000) / 10_000; // 30%
+        uint256 maxStepWithinDrift = 2 * maxNoiseRange; // worst case: -noise -> +noise
+
+        uint256 bucketSec = swap.JITTER_BUCKET_SECONDS();
+        uint256 driftMul = swap.DRIFT_BUCKET_MULTIPLIER();
+
+        // Walk forward across many fast buckets that all live in the SAME
+        // drift window, and assert the step between consecutive samples never
+        // exceeds the noise-only bound.
+        uint256 driftWindowStart = 1_700_000_000 - (1_700_000_000 % (bucketSec * driftMul));
+        uint256 prev = type(uint256).max;
+        for (uint256 i = 0; i < driftMul; i++) {
+            vm.warp(driftWindowStart + i * bucketSec);
+            uint256 p = swap.getPrice();
+            if (prev != type(uint256).max) {
+                uint256 step = p > prev ? p - prev : prev - p;
+                assertLe(step, maxStepWithinDrift, "step exceeds noise-only bound");
+            }
+            prev = p;
+        }
+    }
+
     function test_swap_usesLivePriceNotBaseline() public {
         // Walk to a bucket where the live price strictly differs from baseline.
         uint256 jitter = 5 * 1e6;
