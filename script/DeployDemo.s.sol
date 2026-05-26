@@ -13,6 +13,8 @@ import { MockSwap } from "src/demo/MockSwap.sol";
 ///        TOKEN_NAME    (string)   e.g. "NVDAnon Tokenized Share"
 ///        TOKEN_SYMBOL  (string)   e.g. "NVDAnon"
 ///        USDC_ADDRESS  (address)  defaults to Circle's Base Sepolia USDC
+///        BENEFICIARY   (address)  recipient of every USDC payment.
+///                                 Defaults to the deployer EOA.
 ///        PRICE_USDC    (uint)     baseline price, 6-decimal USDC per whole
 ///                                 RWA token. Default 200_000 = 0.20 USDC/share.
 ///        JITTER_USDC   (uint)     jitter range, 6-decimal USDC. The live price
@@ -42,11 +44,14 @@ contract DeployDemo is Script {
 
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
+        address beneficiary = vm.envOr("BENEFICIARY", deployer);
 
         vm.startBroadcast(deployerKey);
 
         token = new MockRWA(tokenName, tokenSymbol, deployer);
-        swap = new MockSwap(IERC20(usdc), token, priceUsdc, jitterUsdc, deployer);
+        swap = new MockSwap(
+            IERC20(usdc), token, beneficiary, priceUsdc, jitterUsdc, deployer
+        );
 
         // Seed the swap with RWA liquidity so users can buy immediately.
         token.mint(address(swap), seedAmount);
@@ -61,6 +66,7 @@ contract DeployDemo is Script {
         console2.log("  name:          ", tokenName);
         console2.log("  symbol:        ", tokenSymbol);
         console2.log("MockSwap:        ", address(swap));
+        console2.log("  beneficiary:   ", beneficiary);
         console2.log("  baseline (1e6):", priceUsdc);
         console2.log("  jitter   (1e6):", jitterUsdc);
         console2.log("  seeded RWA:    ", seedAmount);

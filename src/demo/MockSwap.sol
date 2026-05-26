@@ -35,6 +35,12 @@ contract MockSwap is Ownable {
     /// @notice The mocked RWA token paid out. 18 decimals.
     MockRWA public immutable RWA_TOKEN;
 
+    /// @notice Recipient of every USDC payment. Set once at deployment so
+    ///         collected funds skip this contract entirely and land directly
+    ///         in the demo treasury / payout address. Cannot be the zero
+    ///         address.
+    address public immutable BENEFICIARY;
+
     /// @notice Baseline price in USDC's smallest unit (6 decimals) for one
     ///         whole RWA token (1e18). e.g. `200_000` = 0.20 USDC per share.
     /// @dev Public name kept as `pricePerShare` so existing frontends keep
@@ -87,11 +93,14 @@ contract MockSwap is Ownable {
     /// @notice `usdcIn` was zero — refuse to emit a no-op event.
     error ZeroAmount();
 
-    /// @notice `recipient` was the zero address.
+    /// @notice `recipient` or `beneficiary` was the zero address.
     error ZeroRecipient();
 
     /// @param usdc           Base Sepolia USDC (6 decimals).
     /// @param rwaToken       RWA-style 18-decimal demo token.
+    /// @param beneficiary    Address that receives every USDC payment. Must be
+    ///                       non-zero. Immutable — pick the right address at
+    ///                       deploy time.
     /// @param initialPrice   Initial BASELINE price in USDC's smallest unit per
     ///                       whole RWA token (e.g. `200_000` = 0.20 USDC/share).
     /// @param initialJitter  Initial jitter range in USDC's smallest unit.
@@ -102,16 +111,19 @@ contract MockSwap is Ownable {
     constructor(
         IERC20 usdc,
         MockRWA rwaToken,
+        address beneficiary,
         uint256 initialPrice,
         uint256 initialJitter,
         address owner_
     )
         Ownable(owner_)
     {
+        if (beneficiary == address(0)) revert ZeroRecipient();
         if (initialPrice == 0) revert InvalidPrice();
         if (initialJitter >= initialPrice) revert InvalidJitter();
         USDC = usdc;
         RWA_TOKEN = rwaToken;
+        BENEFICIARY = beneficiary;
         pricePerShare = initialPrice;
         jitterRange = initialJitter;
     }
@@ -169,7 +181,7 @@ contract MockSwap is Ownable {
         uint256 available = RWA_TOKEN.balanceOf(address(this));
         if (rwaOut > available) revert InsufficientLiquidity(rwaOut, available);
 
-        USDC.safeTransferFrom(msg.sender, address(this), usdcIn);
+        USDC.safeTransferFrom(msg.sender, BENEFICIARY, usdcIn);
         IERC20(address(RWA_TOKEN)).safeTransfer(recipient, rwaOut);
 
         emit Swapped(msg.sender, recipient, usdcIn, rwaOut, price);
@@ -201,8 +213,10 @@ contract MockSwap is Ownable {
         jitterRange = newRange;
     }
 
-    /// @notice Pull any ERC20 out of the contract — used to refund collected
-    ///         USDC or to drain RWA liquidity between demos.
+    /// @notice Pull any ERC20 out of the contract — primarily used to drain
+    ///         RWA liquidity between demos. USDC never accrues here (it goes
+    ///         straight to `BENEFICIARY`) but `withdraw` still works for any
+    ///         token that happens to land in the contract.
     /// @dev Owner-only. Intentionally unrestricted on which token can be
     ///      withdrawn; this is a demo, not a treasury.
     function withdraw(IERC20 token, uint256 amount, address to) external onlyOwner {

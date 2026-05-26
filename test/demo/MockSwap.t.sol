@@ -30,6 +30,7 @@ contract MockSwapTest is Test {
     MockSwap internal swap;
 
     address internal owner = makeAddr("owner");
+    address internal beneficiary = makeAddr("beneficiary");
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
 
@@ -40,7 +41,9 @@ contract MockSwapTest is Test {
         usdc = new USDCMock();
         rwa = new MockRWA("NVDAnon Tokenized Share", "NVDAnon", owner);
         // jitter = 0 -> getPrice() == baseline, keeps existing assertions stable.
-        swap = new MockSwap(IERC20(address(usdc)), rwa, INITIAL_PRICE, 0, owner);
+        swap = new MockSwap(
+            IERC20(address(usdc)), rwa, beneficiary, INITIAL_PRICE, 0, owner
+        );
 
         vm.prank(owner);
         rwa.mint(address(swap), LIQUIDITY);
@@ -54,15 +57,24 @@ contract MockSwapTest is Test {
 
     function test_constructor_zeroPriceReverts() public {
         vm.expectRevert(MockSwap.InvalidPrice.selector);
-        new MockSwap(IERC20(address(usdc)), rwa, 0, 0, owner);
+        new MockSwap(IERC20(address(usdc)), rwa, beneficiary, 0, 0, owner);
+    }
+
+    function test_constructor_zeroBeneficiaryReverts() public {
+        vm.expectRevert(MockSwap.ZeroRecipient.selector);
+        new MockSwap(IERC20(address(usdc)), rwa, address(0), 1, 0, owner);
     }
 
     function test_constructor_jitterAtOrAboveBaseReverts() public {
         vm.expectRevert(MockSwap.InvalidJitter.selector);
-        new MockSwap(IERC20(address(usdc)), rwa, 100, 100, owner);
+        new MockSwap(IERC20(address(usdc)), rwa, beneficiary, 100, 100, owner);
 
         vm.expectRevert(MockSwap.InvalidJitter.selector);
-        new MockSwap(IERC20(address(usdc)), rwa, 100, 101, owner);
+        new MockSwap(IERC20(address(usdc)), rwa, beneficiary, 100, 101, owner);
+    }
+
+    function test_constructor_setsBeneficiary() public view {
+        assertEq(swap.BENEFICIARY(), beneficiary);
     }
 
     function test_swap_happyPath() public {
@@ -75,7 +87,8 @@ contract MockSwapTest is Test {
 
         assertEq(rwaOut, 1e18, "expected exactly 1 whole RWA");
         assertEq(rwa.balanceOf(alice), 1e18);
-        assertEq(usdc.balanceOf(address(swap)), usdcIn);
+        assertEq(usdc.balanceOf(beneficiary), usdcIn, "USDC must flow to beneficiary");
+        assertEq(usdc.balanceOf(address(swap)), 0, "swap must not hold USDC");
         assertEq(usdc.balanceOf(alice), 0);
     }
 
@@ -191,14 +204,12 @@ contract MockSwapTest is Test {
     }
 
     function test_withdraw_movesTokens() public {
-        uint256 usdcIn = 12 * 1e6;
-        _fundAndApprove(alice, usdcIn);
-        vm.prank(alice);
-        swap.swap(usdcIn, 0, alice);
-
+        // USDC goes straight to beneficiary on swap, so to exercise `withdraw`
+        // we drain RWA liquidity (the main reason `withdraw` still exists).
         vm.prank(owner);
-        swap.withdraw(IERC20(address(usdc)), usdcIn, bob);
-        assertEq(usdc.balanceOf(bob), usdcIn);
+        swap.withdraw(IERC20(address(rwa)), LIQUIDITY, bob);
+        assertEq(rwa.balanceOf(bob), LIQUIDITY);
+        assertEq(rwa.balanceOf(address(swap)), 0);
     }
 
     function test_quote_matchesSwap() public {
