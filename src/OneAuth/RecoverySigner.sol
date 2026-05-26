@@ -135,8 +135,13 @@ contract RecoverySigner is Ownable, EIP712 {
 
     /**
      * @notice Returns the EIP-712 digest for a {rotateOwnerWithSig} authorization.
-     * @dev Off-chain signers can use this to compute the digest they need to sign,
-     *      or callers can use it to verify a digest matches their parameters.
+     * @dev When `chainId == 0` the digest is built with a chain-agnostic domain separator
+     *      (no chainId baked in), so the same signature verifies on every chain. When
+     *      `chainId != 0` the standard EIP-712 domain separator is used and `chainId` is
+     *      additionally embedded in the struct hash, pinning the authorization to that
+     *      specific chain (and giving distinct digests across chains).
+     *
+     *      Off-chain signers can use this to compute the digest they need to sign.
      */
     function rotationDigest(
         address newOwner,
@@ -155,7 +160,10 @@ contract RecoverySigner is Ownable, EIP712 {
             bytes32(nonce),
             bytes32(uint256(expiry))
         );
-        return _hashTypedData(structHash);
+        // chainId == 0 means "any chain" — must use a domain separator that does not
+        // depend on block.chainid, otherwise the digest changes across chains and the
+        // signature cannot replay onto another chain (defeating the any-chain intent).
+        return chainId == 0 ? _hashTypedDataSansChainId(structHash) : _hashTypedData(structHash);
     }
 
     /**

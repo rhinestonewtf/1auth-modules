@@ -177,6 +177,22 @@ contract RecoverySignerTest is Test {
         assertEq(signer.owner(), newOwnerAddr);
     }
 
+    /// @dev Regression test for cross-chain replay: a chainId=0 ("any chain") authorization
+    ///      must verify on a chain different from where it was signed. This requires the
+    ///      EIP-712 digest to be chain-agnostic when chainId=0.
+    function test_rotateOwnerWithSig_anyChainIdZero_crossChain() public {
+        uint48 expiry = uint48(block.timestamp + 1 hours);
+
+        // Sign while pretending to be on chain 1
+        vm.chainId(1);
+        bytes memory sig = _signRotation(OWNER_PK, newOwnerAddr, 0, 1, expiry);
+
+        // Submit on a different chain
+        vm.chainId(42_161);
+        signer.rotateOwnerWithSig(newOwnerAddr, 0, 1, expiry, sig);
+        assertEq(signer.owner(), newOwnerAddr);
+    }
+
     function test_rotateOwnerWithSig_unorderedNonces() public {
         // Pre-sign three rotations with arbitrary non-sequential nonces; submit out of order
         uint48 expiry = uint48(block.timestamp + 1 hours);
