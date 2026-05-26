@@ -7,16 +7,26 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 import { MockRWA } from "./MockRWA.sol";
 
-/// @title MockSwap — Fixed-price USDC → RWA swap for live demos
+/// @title MockSwap — Baseline + jitter USDC → RWA swap for live demos
 /// @notice One-directional swap used in the 1Auth interactive demo. The user
 ///         pays USDC (real Base Sepolia Circle USDC, 6 decimals) and receives a
-///         mock RWA token (18 decimals) at an owner-controlled price.
+///         mock RWA token (18 decimals) at a price that wobbles around an
+///         owner-controlled baseline so the demo feels alive on screen.
 /// @dev This is not a real AMM. There is no curve, no fee, no slippage from
-///      depth — just a flat quoted price the demo operator can adjust between
-///      runs. The contract is deliberately small so the demo audience can read
-///      it on a block explorer.
+///      depth. The "live" price is `basePrice + jitter(block.timestamp)` where
+///      jitter is a deterministic value in `[-jitterRange, +jitterRange]`
+///      derived from a 5-second timestamp bucket. Because jitter is fully
+///      deterministic and visible on-chain, a bot could time txs to land in
+///      the cheapest bucket — fine for a live demo, NOT acceptable for real
+///      money. Use only in demos.
 contract MockSwap is Ownable {
     using SafeERC20 for IERC20;
+
+    /// @notice Width of each timestamp bucket in seconds. The jitter value is
+    ///         constant within a bucket so `quote()` agrees with the next
+    ///         `swap()` happening in the same window, and the displayed price
+    ///         doesn't strobe every block.
+    uint256 public constant JITTER_BUCKET_SECONDS = 5;
 
     /// @notice USDC accepted for swaps. Expected to be Circle's Base Sepolia
     ///         USDC at 0x036CbD53842c5426634e7929541eC2318f3dCF7e (6 decimals).
@@ -25,9 +35,18 @@ contract MockSwap is Ownable {
     /// @notice The mocked RWA token paid out. 18 decimals.
     MockRWA public immutable RWA_TOKEN;
 
-    /// @notice Price quoted in USDC's smallest unit (6 decimals) for one whole
-    ///         RWA token (1e18). e.g. `120 * 1e6` = 120 USDC per share.
+    /// @notice Baseline price in USDC's smallest unit (6 decimals) for one
+    ///         whole RWA token (1e18). e.g. `200_000` = 0.20 USDC per share.
+    /// @dev Public name kept as `pricePerShare` so existing frontends keep
+    ///      working — but it is the BASELINE, not the live quote. Use
+    ///      `getPrice()` to see what the next swap will actually charge.
     uint256 public pricePerShare;
+
+    /// @notice Maximum deviation the live price can take above or below the
+    ///         baseline, in USDC's smallest unit (6 decimals). e.g. `20_000`
+    ///         means the live price walks within ±0.02 USDC of `pricePerShare`.
+    ///         Set to zero to disable jitter (price always equals baseline).
+    uint256 public jitterRange;
 
     /// @notice Emitted on every successful swap so the demo UI and the explorer
     ///         have a single event to render.
@@ -35,7 +54,7 @@ contract MockSwap is Ownable {
     /// @param recipient The address that received the RWA tokens.
     /// @param usdcIn    USDC pulled from `user` (6-decimal units).
     /// @param rwaOut    RWA paid to `recipient` (18-decimal units).
-    /// @param price     `pricePerShare` at the time of swap (6-decimal USDC).
+    /// @param price     Live price used for this swap (6-decimal USDC).
     event Swapped(
         address indexed user,
         address indexed recipient,
@@ -44,11 +63,20 @@ contract MockSwap is Ownable {
         uint256 price
     );
 
-    /// @notice Emitted when the owner changes the quoted price.
+    /// @notice Emitted when the owner changes the baseline price.
     event PriceUpdated(uint256 oldPrice, uint256 newPrice);
 
-    /// @notice `pricePerShare` was set to zero — would cause a division-by-zero.
+    /// @notice Emitted when the owner changes the jitter range.
+    event JitterRangeUpdated(uint256 oldRange, uint256 newRange);
+
+    /// @notice Baseline price was set to zero — would cause a div-by-zero in
+    ///         `swap()`. We also reject configurations where `jitterRange`
+    ///         could drive the live price to zero or below.
     error InvalidPrice();
+
+    /// @notice `jitterRange` would allow the live price to reach zero (or
+    ///         underflow it). Must satisfy `jitterRange < basePrice`.
+    error InvalidJitter();
 
     /// @notice The contract does not hold enough RWA to fulfil this swap.
     error InsufficientLiquidity(uint256 requested, uint256 available);
@@ -62,26 +90,54 @@ contract MockSwap is Ownable {
     /// @notice `recipient` was the zero address.
     error ZeroRecipient();
 
-    /// @param usdc            Base Sepolia USDC (6 decimals).
-    /// @param rwaToken        RWA-style 18-decimal demo token.
-    /// @param initialPrice    Initial price in USDC's smallest unit per whole
-    ///                        RWA token (e.g. `120 * 1e6` for 120 USDC/share).
-    /// @param owner_          Address that may call `setPrice` / `withdraw`.
+    /// @param usdc           Base Sepolia USDC (6 decimals).
+    /// @param rwaToken       RWA-style 18-decimal demo token.
+    /// @param initialPrice   Initial BASELINE price in USDC's smallest unit per
+    ///                       whole RWA token (e.g. `200_000` = 0.20 USDC/share).
+    /// @param initialJitter  Initial jitter range in USDC's smallest unit.
+    ///                       Pass `0` to disable jitter. Must be strictly less
+    ///                       than `initialPrice` so the live price stays > 0.
+    /// @param owner_         Address that may call `setPrice` / `setJitter` /
+    ///                       `withdraw`.
     constructor(
         IERC20 usdc,
         MockRWA rwaToken,
         uint256 initialPrice,
+        uint256 initialJitter,
         address owner_
     )
         Ownable(owner_)
     {
         if (initialPrice == 0) revert InvalidPrice();
+        if (initialJitter >= initialPrice) revert InvalidJitter();
         USDC = usdc;
         RWA_TOKEN = rwaToken;
         pricePerShare = initialPrice;
+        jitterRange = initialJitter;
     }
 
-    /// @notice Swap `usdcIn` USDC for RWA tokens at the current `pricePerShare`.
+    /// @notice Live quoted price for the current timestamp bucket. This is
+    ///         what the next swap (executed in the same 5-second window) will
+    ///         use. UIs should poll this for the ticker display.
+    /// @return price Live price in USDC's smallest unit (6 decimals).
+    function getPrice() public view returns (uint256 price) {
+        uint256 base = pricePerShare;
+        uint256 range = jitterRange;
+        if (range == 0) return base;
+
+        // Why: bucket the timestamp so the displayed price doesn't change every
+        // block — it'd flicker and `quote()` would disagree with the next
+        // `swap()` in the same UI tick. 5s gives a visible heartbeat without
+        // strobing. Determinism is intentional (demo only — see contract NatSpec).
+        uint256 bucket = block.timestamp / JITTER_BUCKET_SECONDS;
+        uint256 noise = uint256(keccak256(abi.encode(bucket, address(this))));
+        // Map noise into [0, 2*range] then subtract `range` -> [-range, +range].
+        // Casting through int256 keeps the underflow check explicit.
+        uint256 offset = noise % (2 * range + 1);
+        price = base + offset - range;
+    }
+
+    /// @notice Swap `usdcIn` USDC for RWA tokens at the live `getPrice()`.
     /// @dev Caller must `approve(this, usdcIn)` on USDC first. Follows
     ///      checks-effects-interactions: pulls USDC, then sends RWA last.
     /// @param usdcIn     USDC amount to spend (6 decimals).
@@ -99,16 +155,13 @@ contract MockSwap is Ownable {
         if (usdcIn == 0) revert ZeroAmount();
         if (recipient == address(0)) revert ZeroRecipient();
 
-        uint256 price = pricePerShare;
+        uint256 price = getPrice();
 
         // Why: USDC has 6 decimals and is priced in `price` per WHOLE RWA token
         // (1e18 base units). To get RWA in its native 18-decimal base units
         // from a 6-decimal USDC input, scale the numerator by 1e18 (the RWA
         // unit) and divide by `price * 1` — but `price` is itself 6-decimal,
-        // so we end up with: rwa = usdcIn * 1e18 / price. Working it out:
-        //   rwa_whole  = usdcIn_whole / price_whole
-        //   rwa_base   = usdcIn_base / 1e6 / (price_base / 1e6) * 1e18
-        //              = usdcIn_base * 1e18 / price_base
+        // so we end up with: rwa = usdcIn * 1e18 / price.
         rwaOut = (usdcIn * 1e18) / price;
 
         if (rwaOut < minRwaOut) revert SlippageExceeded(rwaOut, minRwaOut);
@@ -123,17 +176,29 @@ contract MockSwap is Ownable {
     }
 
     /// @notice View helper: how much RWA you would receive for `usdcIn` USDC
-    ///         right now. Cheap to call from a frontend before quoting the user.
+    ///         right now, at the live `getPrice()`. Cheap to call from a
+    ///         frontend before quoting the user.
     function quote(uint256 usdcIn) external view returns (uint256 rwaOut) {
-        rwaOut = (usdcIn * 1e18) / pricePerShare;
+        rwaOut = (usdcIn * 1e18) / getPrice();
     }
 
-    /// @notice Update the quoted price.
-    /// @dev Owner-only. Used between demo runs to reflect a "new" market price.
+    /// @notice Update the baseline price.
+    /// @dev Owner-only. Reverts if the existing `jitterRange` would no longer
+    ///      fit under the new baseline.
     function setPrice(uint256 newPrice) external onlyOwner {
         if (newPrice == 0) revert InvalidPrice();
+        if (jitterRange >= newPrice) revert InvalidJitter();
         emit PriceUpdated(pricePerShare, newPrice);
         pricePerShare = newPrice;
+    }
+
+    /// @notice Update the jitter range.
+    /// @dev Owner-only. Must be strictly less than `pricePerShare` so the
+    ///      live price stays positive. Pass `0` to disable jitter entirely.
+    function setJitter(uint256 newRange) external onlyOwner {
+        if (newRange >= pricePerShare) revert InvalidJitter();
+        emit JitterRangeUpdated(jitterRange, newRange);
+        jitterRange = newRange;
     }
 
     /// @notice Pull any ERC20 out of the contract — used to refund collected
